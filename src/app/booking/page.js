@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { getCar, createBooking } from "@/lib/api";
+import { getCar, getCarBookedDates, createBooking } from "@/lib/api";
 
 const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTH_NAMES = [
@@ -26,13 +26,21 @@ function getToken() {
 
 function isSameDay(a, b) {
   return a.getFullYear() === b.getFullYear() &&
-         a.getMonth() === b.getMonth() &&
-         a.getDate() === b.getDate();
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
 }
 
 function isInRange(day, start, end) {
   if (!start || !end) return false;
   return day > start && day < end;
+}
+
+function isDateBooked(day, bookedDates) {
+  return bookedDates.some(b => {
+    const s = new Date(b.start); s.setHours(0, 0, 0, 0);
+    const e = new Date(b.end); e.setHours(23, 59, 59, 999);
+    return day >= s && day <= e;
+  });
 }
 
 function BookingContent() {
@@ -47,40 +55,75 @@ function BookingContent() {
   const [saved, setSaved] = useState(false);
 
   // Calendar state
-  const today = new Date(); today.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
   const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate]   = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [bookedDates, setBookedDates] = useState([]);
 
   useEffect(() => {
     if (!carId) { setError("No vehicle selected"); setLoading(false); return; }
-    getCar(carId).then((data) => {
-      if (data.success) setCar(data.car || data.data);
+
+    Promise.all([
+      getCar(carId),
+      getCarBookedDates(carId)
+    ]).then(([carData, bookingsData]) => {
+      if (carData.success) setCar(carData.car || carData.data);
       else setError("Vehicle record not found");
+
+      if (bookingsData.success) {
+        setBookedDates(bookingsData.bookedDates.map(b => ({
+          start: new Date(b.startDate),
+          end: new Date(b.endDate)
+        })));
+      }
     }).catch(() => setError("Could not connect to server"))
       .finally(() => setLoading(false));
   }, [carId]);
 
-  // Build calendar days array
-  const buildDays = useCallback(() => {
-    const year  = viewDate.getFullYear();
-    const month = viewDate.getMonth();
+  // Build calendar days array for a given view date (month offset)
+  const buildDaysForMonth = useCallback((offsetMonth = 0) => {
+    const targetDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + offsetMonth, 1);
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
     const first = new Date(year, month, 1).getDay();
     const total = new Date(year, month + 1, 0).getDate();
-    const days  = [];
+    const days = [];
     for (let i = 0; i < first; i++) days.push(null);
     for (let d = 1; d <= total; d++) days.push(new Date(year, month, d));
-    return days;
+    return { days, year, month };
   }, [viewDate]);
 
   function handleDayClick(day) {
     if (!day) return;
     if (day < today) return;
+    if (isDateBooked(day, bookedDates)) return;
+
     if (!startDate || (startDate && endDate)) {
       setStartDate(day); setEndDate(null);
     } else {
       if (day <= startDate) { setStartDate(day); setEndDate(null); }
-      else setEndDate(day);
+      else {
+        // Ensure no booked dates fall in the range
+        let hasOverlap = false;
+        let current = new Date(startDate);
+        while (current <= day) {
+          if (isDateBooked(current, bookedDates)) {
+            hasOverlap = true;
+            break;
+          }
+          current.setDate(current.getDate() + 1);
+        }
+
+        if (hasOverlap) {
+          setError("Cannot select range that includes already booked dates");
+          setTimeout(() => setError(null), 3000);
+          setStartDate(day);
+          setEndDate(null);
+        } else {
+          setEndDate(day);
+        }
+      }
     }
   }
 
@@ -92,7 +135,7 @@ function BookingContent() {
   }
 
   const totalDays = startDate && endDate
-    ? Math.max(1, Math.ceil((endDate - startDate) / (1000*60*60*24)))
+    ? Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)))
     : 0;
   const totalPrice = car ? totalDays * car.pricePerDay : 0;
   const serviceFee = totalPrice > 0 ? 15 : 0;
@@ -109,7 +152,7 @@ function BookingContent() {
       const data = await createBooking({
         carId,
         startDate: startDate.toISOString(),
-        endDate:   endDate.toISOString(),
+        endDate: endDate.toISOString(),
       }, token);
       if (data.success) {
         router.push(`/booking/checkout?bookingId=${data.booking._id}`);
@@ -123,24 +166,25 @@ function BookingContent() {
     }
   }
 
-  const days = buildDays();
+  const month1 = buildDaysForMonth(0);
+  const month2 = buildDaysForMonth(1);
 
   if (loading) return (
     <div className="text-center py-32">
-      <div className="w-9 h-9 border-3 border-gray-200 border-t-[#FF385C] rounded-full animate-spinner mx-auto mb-4" />
+      <div className="w-9 h-9 border-3 border-gray-200 border-t-brand-primary rounded-full animate-spinner mx-auto mb-4" />
       <p className="text-sm text-gray-500">Loading vehicle listing details…</p>
     </div>
   );
 
   const brand = car?.brand || car?.make || "Toyota";
   const model = car?.modelName || car?.model || "Camry";
-  const city  = car?.location?.city || car?.location?.address || "Phnom Penh, Cambodia";
+  const city = car?.location?.city || car?.location?.address || "Phnom Penh, Cambodia";
 
   return (
     <>
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <main className="w-full px-4 sm:px-8 lg:px-12 xl:px-16 py-6">
         {/* Listing Title Bar */}
         <div className="mb-5">
           <h1 className="text-3xl font-extrabold text-gray-900 mb-2">
@@ -268,49 +312,95 @@ function BookingContent() {
                 Pick your check-in and return dates to unlock availability.
               </p>
 
-              <div className="max-w-md bg-white border border-gray-200 rounded-3xl p-6 shadow-sm">
+              <div className="max-w-4xl bg-white border border-gray-200 rounded-3xl p-6 shadow-sm overflow-x-auto">
                 <div className="flex items-center justify-between mb-5">
                   <button className="bg-transparent border-0 text-gray-900 cursor-pointer text-xl hover:bg-gray-100 p-2 rounded-full" onClick={prevMonth}>‹</button>
-                  <span className="font-bold text-sm text-gray-900">
-                    {MONTH_NAMES[viewDate.getMonth()]} {viewDate.getFullYear()}
-                  </span>
+                  <div className="flex gap-20">
+                    <span className="font-bold text-sm text-gray-900 hidden sm:block">
+                      {MONTH_NAMES[month1.month]} {month1.year}
+                    </span>
+                    <span className="font-bold text-sm text-gray-900 hidden sm:block">
+                      {MONTH_NAMES[month2.month]} {month2.year}
+                    </span>
+                    <span className="font-bold text-sm text-gray-900 sm:hidden">
+                      {MONTH_NAMES[month1.month]} {month1.year} - {MONTH_NAMES[month2.month]}
+                    </span>
+                  </div>
                   <button className="bg-transparent border-0 text-gray-900 cursor-pointer text-xl hover:bg-gray-100 p-2 rounded-full" onClick={nextMonth}>›</button>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1 text-center">
-                  {DAY_LABELS.map((l) => (
-                    <div key={l} className="text-[11px] font-bold text-gray-500 uppercase py-1">{l}</div>
-                  ))}
-                  {days.map((day, i) => {
-                    if (!day) return <div key={`e${i}`} className="aspect-square" />;
-                    const isPast   = day < today;
-                    const isStart  = startDate && isSameDay(day, startDate);
-                    const isEnd    = endDate   && isSameDay(day, endDate);
-                    const inRange  = isInRange(day, startDate, endDate);
-                    return (
-                      <div
-                        key={day.toISOString()}
-                        className={`aspect-square flex items-center justify-center rounded-full text-xs font-semibold cursor-pointer transition-all ${
-                          isPast ? "text-gray-300 cursor-not-allowed line-through" : ""
-                        } ${
-                          isStart || isEnd ? "bg-gray-900 text-white font-bold" : ""
-                        } ${
-                          inRange ? "bg-gray-100 text-gray-900 rounded-none" : ""
-                        } ${
-                          !isPast && !isStart && !isEnd && !inRange ? "hover:bg-gray-100 text-gray-900" : ""
-                        }`}
-                        onClick={() => !isPast && handleDayClick(day)}
-                      >
-                        {day.getDate()}
-                      </div>
-                    );
-                  })}
+                <div className="flex gap-8 justify-center min-w-[500px]">
+                  {/* First Month */}
+                  <div className="flex-1">
+                    <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                      {DAY_LABELS.map((l) => (
+                        <div key={l} className="text-[11px] font-bold text-gray-500 uppercase">{l}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {month1.days.map((day, i) => {
+                        if (!day) return <div key={`e${i}`} className="aspect-square" />;
+                        const isPast = day < today;
+                        const booked = isDateBooked(day, bookedDates);
+                        const isStart = startDate && isSameDay(day, startDate);
+                        const isEnd = endDate && isSameDay(day, endDate);
+                        const inRange = isInRange(day, startDate, endDate);
+                        return (
+                          <div
+                            key={day.toISOString()}
+                            className={`aspect-square flex items-center justify-center rounded-full text-xs font-semibold cursor-pointer transition-all ${isPast ? "text-gray-300 cursor-not-allowed line-through" : ""
+                              } ${booked ? "bg-red-50 text-red-500 cursor-not-allowed line-through" : ""
+                              } ${isStart || isEnd ? "bg-gray-900 text-white font-bold" : ""
+                              } ${inRange ? "bg-gray-100 text-gray-900 rounded-none" : ""
+                              } ${!isPast && !booked && !isStart && !isEnd && !inRange ? "hover:bg-gray-100 text-gray-900" : ""
+                              }`}
+                            onClick={() => !isPast && !booked && handleDayClick(day)}
+                          >
+                            {day.getDate()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Second Month */}
+                  <div className="flex-1">
+                    <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                      {DAY_LABELS.map((l) => (
+                        <div key={l} className="text-[11px] font-bold text-gray-500 uppercase">{l}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {month2.days.map((day, i) => {
+                        if (!day) return <div key={`e${i}`} className="aspect-square" />;
+                        const isPast = day < today;
+                        const booked = isDateBooked(day, bookedDates);
+                        const isStart = startDate && isSameDay(day, startDate);
+                        const isEnd = endDate && isSameDay(day, endDate);
+                        const inRange = isInRange(day, startDate, endDate);
+                        return (
+                          <div
+                            key={day.toISOString()}
+                            className={`aspect-square flex items-center justify-center rounded-full text-xs font-semibold cursor-pointer transition-all ${isPast ? "text-gray-300 cursor-not-allowed line-through" : ""
+                              } ${booked ? "bg-red-50 text-red-500 cursor-not-allowed line-through" : ""
+                              } ${isStart || isEnd ? "bg-gray-900 text-white font-bold" : ""
+                              } ${inRange ? "bg-gray-100 text-gray-900 rounded-none" : ""
+                              } ${!isPast && !booked && !isStart && !isEnd && !inRange ? "hover:bg-gray-100 text-gray-900" : ""
+                              }`}
+                            onClick={() => !isPast && !booked && handleDayClick(day)}
+                          >
+                            {day.getDate()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 <p className="text-gray-500 text-xs mt-4 text-center">
                   {!startDate ? "Click a date to set pick-up" :
-                   !endDate   ? "Click a second date to set return" :
-                   `${startDate.toLocaleDateString()} → ${endDate.toLocaleDateString()}`}
+                    !endDate ? "Click a second date to set return" :
+                      `${startDate.toLocaleDateString()} → ${endDate.toLocaleDateString()}`}
                 </p>
               </div>
             </div>
@@ -340,7 +430,7 @@ function BookingContent() {
               {error && <p className="text-red-600 text-xs mb-2">{error}</p>}
 
               <button
-                className="w-full py-3.5 px-6 rounded-xl text-base font-bold cursor-pointer border-0 bg-gradient-to-br from-[#FF385C] to-[#E00B41] text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3.5 px-6 rounded-xl text-base font-bold cursor-pointer border-0 bg-brand-primary hover:bg-brand-hover text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleSubmit}
                 disabled={!startDate || !endDate || submitting}
               >
@@ -379,7 +469,7 @@ function BookingContent() {
 
 export default function BookingPage() {
   return (
-    <Suspense fallback={<div className="max-w-7xl mx-auto p-12 text-center text-gray-500">Loading vehicle listing...</div>}>
+    <Suspense fallback={<div className="w-full px-4 sm:px-8 lg:px-12 xl:px-16 p-12 text-center text-gray-500">Loading vehicle listing...</div>}>
       <BookingContent />
     </Suspense>
   );

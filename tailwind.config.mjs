@@ -8,6 +8,15 @@ export default {
   theme: {
     extend: {
       colors: {
+        brand: {
+          DEFAULT: "#FF385C",
+          primary: "#FF385C",
+          hover: "#E00B41",
+          light: "#FFF0F3",
+          dark: "#D90B38",
+        },
+        "brand-primary": "#FF385C",
+        "brand-hover": "#E00B41",
         airbnb: {
           coral: "#FF385C",
           "coral-hover": "#E00B41",

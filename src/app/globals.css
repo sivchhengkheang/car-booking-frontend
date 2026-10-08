@@ -4,13 +4,41 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --brand-primary: #FF385C;
+  --brand-hover: #E00B41;
+  --brand-light: #FFF0F3;
+}
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-    background-color: #ffffff;
-    color: #222222;
+    background-color: #fafafa;
+    color: #111827;
     -webkit-font-smoothing: antialiased;
   }
+}
+
+/* Fallback utilities to ensure brand buttons & text are never transparent or white-on-white */
+.bg-brand-primary {
+  background-color: #FF385C !important;
+}
+.bg-brand-hover:hover,
+button.bg-brand-primary:hover,
+a.bg-brand-primary:hover {
+  background-color: #E00B41 !important;
+}
+.text-brand-primary {
+  color: #FF385C !important;
+}
+.border-brand-primary {
+  border-color: #FF385C !important;
+}
+.border-t-brand-primary {
+  border-top-color: #FF385C !important;
+}
+.ring-brand-primary:focus {
+  --tw-ring-color: #FF385C !important;
 }
 
 /* Minimal custom scrollbar & spinner keyframe */

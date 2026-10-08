@@ -24,7 +24,11 @@ function LoginContent() {
     try {
       const data = await loginUser(email, password);
       if (data.success) {
-        localStorage.setItem("token", data.token);
+        const token = data.accessToken || data.token;
+        if (token) localStorage.setItem("token", token);
+        if (data.refreshToken) {
+          localStorage.setItem("refreshToken", data.refreshToken);
+        }
         if (data.user) {
           localStorage.setItem("user", JSON.stringify(data.user));
         }
@@ -33,7 +37,7 @@ function LoginContent() {
         setError(data.message || "Invalid credentials");
       }
     } catch {
-      setError("Network error — please try again");
+      setError("Something went wrong — please try again");
     } finally {
       setLoading(false);
     }
@@ -58,7 +62,7 @@ function LoginContent() {
               </label>
               <input
                 type="email"
-                className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:border-[#FF385C] focus:ring-2 focus:ring-[#FF385C]/20 outline-none transition-all"
+                className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 outline-none transition-all"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="sokha@example.com"
@@ -73,7 +77,7 @@ function LoginContent() {
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:border-[#FF385C] focus:ring-2 focus:ring-[#FF385C]/20 outline-none transition-all pr-10"
+                  className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 outline-none transition-all pr-10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -99,7 +103,7 @@ function LoginContent() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3.5 px-6 rounded-xl font-bold bg-gradient-to-r from-[#FF385C] to-[#E00B41] text-white shadow-md hover:shadow-lg transition-all active:scale-98 cursor-pointer disabled:opacity-50"
+              className="w-full mt-2 py-3.5 px-6 rounded-xl font-bold bg-brand-primary hover:bg-brand-hover  shadow-md hover:shadow-lg transition-all active:scale-98 cursor-pointer disabled:opacity-50"
             >
               {loading ? "Signing in…" : "Continue"}
             </button>
@@ -121,17 +125,30 @@ function LoginContent() {
             id="kid-signin-btn"
             type="button"
             onClick={redirectToKID}
-            className="w-full flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl font-bold text-sm border-2 border-[#FF385C] text-[#FF385C] bg-white hover:bg-[#FF385C]/5 active:scale-[0.98] transition-all cursor-pointer shadow-sm"
+            className="w-full relative overflow-hidden group flex items-center justify-between py-3.5 px-5 rounded-2xl font-bold text-sm bg-gradient-to-r from-red-600 via-rose-600 to-[#FF385C] text-white shadow-md shadow-red-500/20 hover:shadow-xl hover:shadow-red-500/35 hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer border border-white/20"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V6L12 2z" fill="#FF385C" fillOpacity="0.15" stroke="#FF385C" strokeWidth="2" strokeLinejoin="round"/>
-              <path d="M9 12l2 2 4-4" stroke="#FF385C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Sign in with KID
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-white shadow-inner flex-shrink-0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V6L12 2z" fill="white" fillOpacity="0.25" stroke="white" strokeWidth="2" strokeLinejoin="round"/>
+                  <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-extrabold text-white leading-tight flex items-center gap-1.5">
+                  Sign in with KID
+                  <span className="text-[9px] bg-white text-red-600 font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">SSO</span>
+                </div>
+                <div className="text-[11px] text-white/80 font-medium">KOOMPI ID · Email, Google, Apple &amp; Telegram</div>
+              </div>
+            </div>
+            <div className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white text-xs group-hover:translate-x-1 transition-transform">
+              →
+            </div>
           </button>
 
-          <p className="text-center text-[10px] text-gray-400 mt-2">
-            KID — Cambodia&apos;s unified digital identity &amp; wallet
+          <p className="text-center text-[11px] text-gray-500 mt-2 font-medium">
+            Unified digital identity &amp; wallet on Selendra EVM
           </p>
 
           {/* Security Callout */}
@@ -142,8 +159,8 @@ function LoginContent() {
 
           <div className="mt-4 text-center">
             <p className="text-xs text-gray-600">
-              Don't have an account?{" "}
-              <Link href="/auth/register" className="text-[#FF385C] font-bold hover:underline no-underline">
+              Don&apos;t have an account?{" "}
+              <Link href="/auth/register" className="text-brand-primary font-bold hover:underline no-underline">
                 Sign up
               </Link>
             </p>

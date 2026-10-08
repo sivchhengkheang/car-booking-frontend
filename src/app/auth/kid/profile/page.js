@@ -77,7 +77,7 @@ export default function KIDProfilePage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-10 h-10 rounded-full border-4 border-[#FF385C]/20 border-t-[#FF385C] animate-spin" />
+        <div className="w-10 h-10 rounded-full border-4 border-brand-primary/20 border-t-brand-primary animate-spin" />
       </div>
     );
   }
@@ -99,7 +99,7 @@ export default function KIDProfilePage() {
           >
             ← Back to DriveKH
           </Link>
-          <span className="text-[10px] font-semibold text-[#FF385C] bg-[#FF385C]/8 px-3 py-1 rounded-full border border-[#FF385C]/20">
+          <span className="text-[10px] font-semibold text-brand-primary bg-brand-primary/10 px-3 py-1 rounded-full border border-brand-primary/20">
             KID Authenticated
           </span>
         </div>
@@ -107,7 +107,7 @@ export default function KIDProfilePage() {
         {/* ── Identity Card ─────────────────────────────────── */}
         <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
           {/* Gradient header */}
-          <div className="bg-gradient-to-r from-[#FF385C] to-[#E00B41] px-6 pt-8 pb-16 relative">
+          <div className="bg-brand-primary px-6 pt-8 pb-16 relative">
             <div className="absolute top-4 right-5 text-[10px] font-mono font-bold text-white/70 bg-white/10 px-2 py-1 rounded-full">
               {user.kid ?? "KID-XXXXXX"}
             </div>
@@ -121,7 +121,7 @@ export default function KIDProfilePage() {
 
           {/* Avatar — overlaps gradient */}
           <div className="px-6 -mt-10 mb-4 flex items-end justify-between">
-            <div className="w-20 h-20 rounded-2xl border-4 border-white shadow-lg overflow-hidden bg-gradient-to-br from-[#FF385C] to-[#E00B41] flex items-center justify-center">
+            <div className="w-20 h-20 rounded-2xl border-4 border-white shadow-lg overflow-hidden bg-brand-primary flex items-center justify-center">
               {user.picture ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -280,7 +280,7 @@ export default function KIDProfilePage() {
           id="kid-signout-btn"
           onClick={handleSignOut}
           disabled={signingOut}
-          className="w-full py-4 rounded-2xl font-bold text-sm bg-white border-2 border-gray-200 text-gray-700 hover:border-[#FF385C] hover:text-[#FF385C] transition-all cursor-pointer disabled:opacity-50 shadow-sm"
+          className="w-full py-4 rounded-2xl font-bold text-sm bg-white border-2 border-gray-200 text-gray-700 hover:border-brand-primary hover:text-brand-primary transition-all cursor-pointer disabled:opacity-50 shadow-sm"
         >
           {signingOut ? "Signing out…" : "Sign out of KID"}
         </button>

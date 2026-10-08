@@ -1,86 +1,101 @@
 /**
  * KID OAuth - Client-side auth helper
- * Uses @kid-oauth/sdk (KIDAuth) for frontend redirect flow.
+ * Uses @kid-oauth/sdk (KIDOAuthClient) for browser redirect flow with PKCE (S256).
  *
- * Base URL: https://api.kid.koompi.org
- * Scopes: openid profile.basic profile.contact wallet.read
- *
- * Key points from KID docs:
- * - KID handles PKCE (S256) automatically — do NOT generate your own.
- * - Pass `state` from callback query string straight into the token request
- *   so KID can look up the server-side PKCE record.
- * - Token response includes `user` object directly — no separate /userinfo needed.
- * - `sub` is the stable foreign-key identifier, not email/username.
- * - `kid` in the user object (e.g. "KID-000001") is the human identity number,
- *   unrelated to the JWT `kid` header.
+ * Rules:
+ * 1. Client secret stays on server (KIDOAuthServer).
+ * 2. Browser generates PKCE S256 via KIDOAuthClient; getLoginUrl stores
+ *    verifier in sessionStorage, and extractCallback retrieves it.
+ * 3. Key users by `sub` (opaque, stable). `kid` is a 9-digit display string.
  */
 
-import { KIDAuth } from '@kid-oauth/sdk';
+import { KIDOAuthClient } from '@kid-oauth/sdk';
 
-/** Singleton KIDAuth instance (client-side) */
-export const kidAuth = new KIDAuth({
-  clientId: process.env.NEXT_PUBLIC_KID_CLIENT_ID,
-  redirectUri: process.env.NEXT_PUBLIC_KID_REDIRECT_URI,
+/** Singleton KIDOAuthClient for browser */
+export const kidClient = new KIDOAuthClient({
+  clientId: process.env.NEXT_PUBLIC_KID_CLIENT_ID || 'pk_cc4a0155-da8a-47fa-a659-8facccfb5eb6',
+  redirectUri: process.env.NEXT_PUBLIC_KID_REDIRECT_URI || 'http://localhost:3000/auth/kid/callback',
+  baseUrl: process.env.NEXT_PUBLIC_KID_BASE_URL || 'https://api.kid.koompi.org',
 });
 
-/** Scopes requested from KID */
+/** Scopes enabled and requested */
 export const KID_SCOPES = 'openid profile.basic profile.contact wallet.read';
 
 /**
- * Builds the KID authorization URL and redirects the browser.
- * KID handles response_type, PKCE (S256), and CSRF state automatically.
+ * Builds the KID authorization URL with PKCE (S256) and redirects the browser.
  */
 export async function redirectToKID() {
-  const url = await kidAuth.createLoginUrl({ scope: KID_SCOPES });
-  window.location.href = url;
+  const url = await kidClient.getLoginUrl({ scope: KID_SCOPES });
+  window.location.assign(url);
 }
 
 /**
- * Session helpers — thin wrappers over sessionStorage so that
- * components have a single, consistent way to read/write auth state.
+ * Session helpers
  */
 export const session = {
-  /**
-   * Persist tokens and user data returned by the server callback.
-   * @param {{ access_token, refresh_token, user }} data
-   */
   save(data) {
-    sessionStorage.setItem('kid_access_token', data.access_token);
-    if (data.refresh_token) {
-      sessionStorage.setItem('kid_refresh_token', data.refresh_token);
+    const backendToken = data.accessToken || data.token || data.access_token;
+    const backendRefresh = data.refreshToken || data.refresh_token;
+
+    if (backendToken) {
+      localStorage.setItem('token', backendToken);
     }
-    sessionStorage.setItem('kid_user', JSON.stringify(data.user));
+    if (backendRefresh) {
+      localStorage.setItem('refreshToken', backendRefresh);
+      sessionStorage.setItem('kid_refresh_token', backendRefresh);
+    }
+    if (data.kid_access_token) {
+      sessionStorage.setItem('kid_access_token', data.kid_access_token);
+    }
+    if (data.user) {
+      sessionStorage.setItem('kid_user', JSON.stringify(data.user));
+      localStorage.setItem('user', JSON.stringify(data.user));
+    }
   },
 
-  /** Returns the currently stored KID user object, or null. */
+  updateTokens(tokens) {
+    const backendToken = tokens.accessToken || tokens.token || tokens.access_token;
+    const backendRefresh = tokens.refreshToken || tokens.refresh_token;
+
+    if (backendToken) {
+      localStorage.setItem('token', backendToken);
+    }
+    if (backendRefresh) {
+      localStorage.setItem('refreshToken', backendRefresh);
+      sessionStorage.setItem('kid_refresh_token', backendRefresh);
+    }
+    if (tokens.kid_access_token) {
+      sessionStorage.setItem('kid_access_token', tokens.kid_access_token);
+    }
+  },
+
   getUser() {
     try {
-      const raw = sessionStorage.getItem('kid_user');
+      const raw = sessionStorage.getItem('kid_user') || localStorage.getItem('user');
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   },
 
-  /** Returns the stored access token string, or null. */
   getAccessToken() {
-    return sessionStorage.getItem('kid_access_token');
+    return localStorage.getItem('token') || sessionStorage.getItem('kid_access_token');
   },
 
-  /** Returns the stored refresh token string, or null. */
   getRefreshToken() {
-    return sessionStorage.getItem('kid_refresh_token');
+    return localStorage.getItem('refreshToken') || sessionStorage.getItem('kid_refresh_token');
   },
 
-  /** Returns true if a user is currently signed in. */
   isSignedIn() {
     return !!this.getAccessToken() && !!this.getUser();
   },
 
-  /** Clears all KID session data. */
   clear() {
     sessionStorage.removeItem('kid_access_token');
     sessionStorage.removeItem('kid_refresh_token');
     sessionStorage.removeItem('kid_user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
   },
 };
