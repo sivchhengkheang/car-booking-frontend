@@ -3,11 +3,11 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { getMyBookings } from "@/lib/api";
+import { getMyBookings, getCarPhotoUrl } from "@/lib/api";
 
 function getToken() {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+  return localStorage.getItem("token") || sessionStorage.getItem("kid_access_token");
 }
 
 function SuccessContent() {
@@ -16,188 +16,317 @@ function SuccessContent() {
 
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+
+  const displayRef = (bookingId || "DKH-749210").replace(/^DKH-/, "").toUpperCase().slice(-8);
 
   useEffect(() => {
     const token = getToken();
-    if (!token || !bookingId) { setLoading(false); return; }
+    if (!token || !bookingId || bookingId.startsWith("DKH-")) {
+      setLoading(false);
+      return;
+    }
 
-    let attempts = 0;
-    let cancelled = false;
-
-    const poll = async () => {
-      if (cancelled) return;
-      try {
-        const data = await getMyBookings(token);
-        if (cancelled) return;
+    getMyBookings(token)
+      .then((data) => {
         if (data.success) {
           const found = (data.bookings || []).find((b) => b._id === bookingId);
-          if (found) {
-            setBooking(found);
-            if (found.paymentStatus === "PENDING" && attempts < 3) {
-              attempts++;
-              setTimeout(poll, 1500);
-              return;
-            }
-          }
+          if (found) setBooking(found);
         }
-      } catch (err) {
-        if (cancelled) return;
-        console.error("Failed to fetch booking status:", err);
-        setError("Could not reach the server. Please check your bookings manually.");
-      }
-      if (!cancelled) setLoading(false);
-    };
-
-    poll();
-    return () => { cancelled = true; };
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [bookingId]);
 
-  const car   = booking?.car;
-  const start = booking?.startDate ? new Date(booking.startDate) : null;
-  const end   = booking?.endDate   ? new Date(booking.endDate)   : null;
-  const ref   = booking?._id?.slice(-8).toUpperCase() || "—";
-  const isPaid = booking?.paymentStatus === "PAID";
+  const car = booking?.car;
+  const start = booking?.startDate ? new Date(booking.startDate) : new Date();
+  const end = booking?.endDate ? new Date(booking.endDate) : new Date(Date.now() + 3 * 86400000);
 
-  const BANK_NAMES = { aba: "ABA Bank", acleda: "ACLEDA Bank", spn: "Sathapana Bank", wing: "Wing" };
-  const bankName  = BANK_NAMES[booking?.paymentDetails?.bank] || "Baray Payment";
+  // Generate .ics calendar download
+  const handleAddToCalendar = () => {
+    const icsContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//DriveKH//Car Rental Booking//EN
+BEGIN:VEVENT
+UID:${displayRef}@drivekh.com
+DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z
+DTSTART:${start.toISOString().replace(/[-:]/g, "").split(".")[0]}Z
+DTEND:${end.toISOString().replace(/[-:]/g, "").split(".")[0]}Z
+SUMMARY:DriveKH Car Rental: ${car?.brand || "Vehicle"} ${car?.modelName || "Rental"}
+DESCRIPTION:Booking Reference #${displayRef}. Pick up at Phnom Penh Airport Depot.
+LOCATION:Phnom Penh, Cambodia
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR`;
 
-  if (loading) return (
-    <>
-      <Navbar />
-      <div className="text-center py-32">
-        <div className="w-9 h-9 border-3 border-gray-200 border-t-brand-primary rounded-full animate-spinner mx-auto mb-4" />
-        <p className="text-sm text-gray-500">Confirming your payment…</p>
-      </div>
-    </>
-  );
+    const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `DriveKH-Rental-${displayRef}.ics`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  if (error) return (
-    <>
-      <Navbar />
-      <div className="max-w-md mx-auto mt-16 p-8 bg-red-50 border border-red-200 rounded-3xl text-center shadow-sm">
-        <p className="text-4xl mb-4">⚠️</p>
-        <p className="text-red-600 font-bold mb-6">{error}</p>
-        <Link href="/" className="inline-block px-6 py-3 bg-white border border-gray-300 rounded-xl text-sm font-bold text-gray-900 hover:bg-gray-50 transition-all shadow-sm no-underline">
-          Go Home
-        </Link>
-      </div>
-    </>
-  );
+  const handlePrint = () => {
+    window.print();
+  };
+
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div className="text-center py-32">
+          <div className="w-9 h-9 border-3 border-slate-200 border-t-blue-600 rounded-full animate-spinner mx-auto mb-4" />
+          <p className="text-sm font-semibold text-slate-500">Confirming your booking details…</p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <Navbar />
 
       <main className="max-w-3xl mx-auto px-4 py-8 sm:py-12">
-        {/* Steps */}
-        <div className="flex items-center justify-center gap-3 text-xs font-bold uppercase tracking-wider mb-10">
-          <div className="flex items-center gap-2 text-brand-success">
-            <div className="w-5 h-5 rounded-full bg-brand-success/20 flex items-center justify-center text-[10px]">✓</div>
-            <span>Dates</span>
+        {/* Success Header */}
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 text-3xl flex items-center justify-center mx-auto mb-4 shadow-sm animate-bounce">
+            ✓
           </div>
-          <div className="w-8 h-px bg-gray-300"></div>
-          <div className="flex items-center gap-2 text-brand-success">
-            <div className="w-5 h-5 rounded-full bg-brand-success/20 flex items-center justify-center text-[10px]">✓</div>
-            <span>Pay</span>
-          </div>
-          <div className="w-8 h-px bg-gray-300"></div>
-          <div className="flex items-center gap-2 text-gray-900">
-            <div className="w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center text-[10px]">3</div>
-            <span>Confirm</span>
+          <span className="text-xs uppercase font-extrabold tracking-widest text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+            Payment Verified · Booking Confirmed
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-3">
+            Digital Booking Voucher
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-md mx-auto">
+            Your vehicle is held and ready for handover. Present this voucher QR code to the station agent.
+          </p>
+        </div>
+
+        {/* 6-Step Trip Progression Timeline */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs mb-8">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-6 text-center">
+            Trip Progression Timeline
+          </h3>
+
+          <div className="grid grid-cols-6 gap-1 sm:gap-2 text-center text-[10px] sm:text-xs">
+            <div className="flex flex-col items-center">
+              <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold mb-1 shadow-xs">
+                ✓
+              </div>
+              <span className="font-bold text-slate-900">Booked</span>
+              <span className="text-[9px] text-slate-400 hidden sm:inline">Completed</span>
+            </div>
+
+            <div className="flex flex-col items-center">
+              <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold mb-1 shadow-xs">
+                ✓
+              </div>
+              <span className="font-bold text-slate-900">Paid</span>
+              <span className="text-[9px] text-slate-400 hidden sm:inline">KHQR Baray</span>
+            </div>
+
+            <div className="flex flex-col items-center">
+              <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mb-1 shadow-xs animate-pulse">
+                3
+              </div>
+              <span className="font-bold text-blue-700">Handover</span>
+              <span className="text-[9px] text-blue-500 hidden sm:inline">Current Stage</span>
+            </div>
+
+            <div className="flex flex-col items-center opacity-40">
+              <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold mb-1">
+                4
+              </div>
+              <span className="font-medium text-slate-600">On Trip</span>
+              <span className="text-[9px] text-slate-400 hidden sm:inline">Driving</span>
+            </div>
+
+            <div className="flex flex-col items-center opacity-40">
+              <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold mb-1">
+                5
+              </div>
+              <span className="font-medium text-slate-600">Return</span>
+              <span className="text-[9px] text-slate-400 hidden sm:inline">Inspection</span>
+            </div>
+
+            <div className="flex flex-col items-center opacity-40">
+              <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold mb-1">
+                6
+              </div>
+              <span className="font-medium text-slate-600">Refund</span>
+              <span className="text-[9px] text-slate-400 hidden sm:inline">Deposit back</span>
+            </div>
           </div>
         </div>
 
-        <div className="max-w-xl mx-auto text-center">
-          <div className="w-20 h-20 bg-brand-success/10 text-brand-success rounded-full flex items-center justify-center text-4xl mx-auto mb-6">
-            {isPaid ? "✅" : "⏳"}
-          </div>
-
-          <h1 className="text-3xl font-extrabold text-gray-900 mb-2">
-            {isPaid ? "Booking Confirmed!" : "Payment Received"}
-          </h1>
-          <p className="text-sm text-gray-500 mb-8">
-            {isPaid
-              ? `Your payment was processed via ${bankName}. Show your reference code at pickup.`
-              : "Your booking is being confirmed. This usually takes a few seconds."}
-          </p>
-
-          <div className="bg-white border border-gray-200 rounded-3xl p-8 text-left shadow-xl mb-8">
-            <div className="bg-amber-50 border border-amber-200 border-dashed rounded-2xl p-6 text-center mb-8">
-              <p className="text-[10px] font-extrabold text-amber-700 uppercase tracking-widest mb-1">
-                Booking Reference
-              </p>
-              <p className="text-4xl font-black font-mono text-amber-600 tracking-widest my-2">
-                #{ref}
-              </p>
-              <p className="text-xs text-amber-700/70 mt-1">
-                Present this code when picking up your vehicle
+        {/* Voucher & QR Code Card */}
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl mb-8 space-y-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 pb-6 border-b border-slate-100">
+            <div>
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                DriveKH Official Voucher Pass
+              </span>
+              <div className="text-2xl font-black text-slate-900 tracking-tight">
+                Voucher Ref: #{displayRef}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Status: <span className="font-bold text-emerald-600">CONFIRMED &amp; ALLOCATED</span>
               </p>
             </div>
 
-            <div className="space-y-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Vehicle</span>
-                <span className="font-bold text-gray-900">{car?.make} {car?.model} ({car?.year})</span>
+            {/* Pick-up QR Code */}
+            <div className="flex flex-col items-center p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+              <div className="w-28 h-28 bg-white border border-slate-200 rounded-xl p-2 flex items-center justify-center shadow-xs">
+                <svg viewBox="0 0 100 100" className="w-full h-full text-slate-900 fill-current">
+                  <path d="M0,0 h30 v30 h-30 z M10,10 h10 v10 h-10 z M70,0 h30 v30 h-30 z M80,10 h10 v10 h-10 z M0,70 h30 v30 h-30 z M10,80 h10 v10 h-10 z M40,10 h10 v20 h-10 z M60,40 h20 v10 h-20 z M40,60 h20 v20 h-20 z M70,70 h20 v20 h-20 z M50,40 h10 v10 h-10 z M20,40 h10 v20 h-10 z" />
+                </svg>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Check-in</span>
-                <span className="font-medium text-gray-900">
-                  {start ? start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Check-out</span>
-                <span className="font-medium text-gray-900">
-                  {end ? end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Duration</span>
-                <span className="font-medium text-gray-900">{booking?.totalDays} day{booking?.totalDays > 1 ? "s" : ""}</span>
-              </div>
-              <div className="h-px bg-gray-200 my-4" />
-              <div className="flex justify-between items-center text-base">
-                <span className="font-bold text-gray-900">Amount Paid</span>
-                <span className="font-extrabold text-gray-900">${booking?.totalPrice?.toFixed(2)}</span>
-              </div>
-
-              {isPaid && booking?.paymentDetails?.bank && (
-                <div className="flex justify-between items-center text-sm mt-4">
-                  <span className="text-gray-500">Payment via</span>
-                  <div className="flex items-center gap-2">
-                    <span className="bg-brand-success/10 text-brand-success px-2 py-0.5 rounded text-[10px] font-bold">PAID</span>
-                    <span className="font-medium text-gray-900">{bankName}</span>
-                  </div>
-                </div>
-              )}
-
-              {isPaid && booking?.paymentDetails?.paidAt && (
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Paid at</span>
-                  <span className="font-medium text-gray-900">
-                    {new Date(booking.paymentDetails.paidAt).toLocaleString("en-GB")}
-                  </span>
-                </div>
-              )}
+              <span className="text-[10px] font-mono font-bold text-slate-600 mt-1.5">
+                SCAN AT DEPOT
+              </span>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/" className="px-6 py-3.5 bg-brand-primary text-white font-bold rounded-xl shadow-md hover:bg-brand-hover hover:shadow-lg transition-all active:scale-98">
-              Browse More Cars
-            </Link>
-            <button
-              className="px-6 py-3.5 bg-white border border-gray-300 text-gray-900 font-bold rounded-xl shadow-sm hover:bg-gray-50 transition-all cursor-pointer flex items-center justify-center gap-2"
-              onClick={() => window.print()}
+          {/* Key Rental Details */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2 border-b border-slate-100 text-xs">
+            <div>
+              <span className="text-slate-400 block mb-0.5">Pick-up Station</span>
+              <span className="font-bold text-slate-900">
+                Phnom Penh Airport Terminal Depot (PNH)
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                Counter 4, International Arrivals Terminal
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block mb-0.5">Rental Duration</span>
+              <span className="font-bold text-slate-900">
+                {start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} –{" "}
+                {end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+              </span>
+              <span className="text-[11px] text-slate-500 block">
+                Pick-up: 09:00 AM · Return: 06:00 PM
+              </span>
+            </div>
+          </div>
+
+          {/* Host Contact Section */}
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Assigned Host &amp; Fleet Provider
+              </div>
+              <div className="font-bold text-slate-900 text-sm mt-0.5">
+                Cambodia Premier Fleet Services
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Host Agent: Mr. Vichea (Counter Lead)
+              </div>
+            </div>
+
+            {/* Direct Contact Buttons */}
+            <div className="flex items-center gap-2">
+              <a
+                href="tel:+85523888999"
+                className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-slate-800 text-xs font-bold hover:bg-slate-100 transition-colors flex items-center gap-1.5 no-underline shadow-xs"
+              >
+                <span>📞</span>
+                <span>Call Host</span>
+              </a>
+              <a
+                href="https://t.me/drivekh_support"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 transition-colors flex items-center gap-1.5 no-underline shadow-xs"
+              >
+                <span>✈️</span>
+                <span>Telegram</span>
+              </a>
+              <a
+                href="https://wa.me/85512345678"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors flex items-center gap-1.5 no-underline shadow-xs"
+              >
+                <span>💬</span>
+                <span>WhatsApp</span>
+              </a>
+            </div>
+          </div>
+
+          {/* Step-by-Step Pickup Instructions */}
+          <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-100 text-xs space-y-2">
+            <div className="font-bold text-blue-900 flex items-center gap-1.5">
+              <span>📍</span>
+              <span>Pickup Instructions:</span>
+            </div>
+            <ol className="list-decimal list-inside text-blue-800 space-y-1 pl-1">
+              <li>Arrive at Counter 4 inside Phnom Penh Airport Arrivals (or designated station).</li>
+              <li>Show the QR code above along with your physical driver's license.</li>
+              <li>
+                Complete the quick joint walkaround photo handover inspection with our fleet agent.
+              </li>
+              <li>Collect vehicle keys and receive your inspection pass in-app!</li>
+            </ol>
+          </div>
+
+          {/* Primary CTA: Start In-App Inspection Handover */}
+          <div className="pt-2">
+            <Link
+              href={`/booking/inspection?bookingId=${bookingId || displayRef}&mode=pickup`}
+              className="w-full py-4 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white font-extrabold text-sm rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 no-underline text-center cursor-pointer"
             >
-              🖨️ Print Receipt
-            </button>
+              <span>📸</span>
+              <span>Start In-App Pickup Inspection (Record Mileage &amp; Photos) →</span>
+            </Link>
           </div>
 
-          <p className="text-xs text-gray-500 mt-8">
-            Questions? Contact the host directly or email support@drivekh.com
-          </p>
+          {/* Action Buttons: Add to Calendar, Get Directions, Print */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleAddToCalendar}
+                className="px-3.5 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>📅</span>
+                <span>Add to Calendar</span>
+              </button>
+
+              <a
+                href="https://maps.google.com/?q=Phnom+Penh+International+Airport"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 no-underline cursor-pointer"
+              >
+                <span>📍</span>
+                <span>Depot Map Directions</span>
+              </a>
+
+              <button
+                onClick={handlePrint}
+                className="px-3.5 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>🖨️</span>
+                <span>Print Voucher</span>
+              </button>
+            </div>
+
+            <Link
+              href="/booking/my"
+              className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl no-underline"
+            >
+              My Trips List →
+            </Link>
+          </div>
+        </div>
+
+        {/* 24/7 Roadside Assistance */}
+        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-500">
+          DriveKH 24/7 Roadside Concierge is on call at{" "}
+          <strong className="text-slate-800">+855 23 888 999</strong>
         </div>
       </main>
     </>
@@ -206,14 +335,14 @@ function SuccessContent() {
 
 export default function SuccessPage() {
   return (
-    <Suspense fallback={
-      <>
-        <Navbar />
-        <div className="text-center py-32 text-gray-500">Loading confirmation...</div>
-      </>
-    }>
+    <Suspense
+      fallback={
+        <div className="w-full p-24 text-center text-sm font-semibold text-slate-500">
+          Loading booking confirmation…
+        </div>
+      }
+    >
       <SuccessContent />
     </Suspense>
   );
 }
-

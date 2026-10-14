@@ -5,40 +5,45 @@
 @tailwind utilities;
 
 :root {
-  --brand-primary: #FF385C;
-  --brand-hover: #E00B41;
-  --brand-light: #FFF0F3;
+  --brand-primary: #1D4ED8;
+  --brand-secondary: #2563EB;
+  --brand-hover: #1E40AF;
+  --brand-light: #EFF6FF;
+  --brand-dark: #0F172A;
+  --brand-success: #10B981;
+  --brand-warning: #F59E0B;
+  --brand-danger: #EF4444;
 }
 
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-    background-color: #fafafa;
-    color: #111827;
+    background-color: #f8fafc;
+    color: #0f172a;
     -webkit-font-smoothing: antialiased;
   }
 }
 
-/* Fallback utilities to ensure brand buttons & text are never transparent or white-on-white */
+/* Fallback utilities to ensure brand buttons & text are crisp and professional */
 .bg-brand-primary {
-  background-color: #FF385C !important;
+  background-color: #1D4ED8 !important;
 }
 .bg-brand-hover:hover,
 button.bg-brand-primary:hover,
 a.bg-brand-primary:hover {
-  background-color: #E00B41 !important;
+  background-color: #1E40AF !important;
 }
 .text-brand-primary {
-  color: #FF385C !important;
+  color: #1D4ED8 !important;
 }
 .border-brand-primary {
-  border-color: #FF385C !important;
+  border-color: #1D4ED8 !important;
 }
 .border-t-brand-primary {
-  border-top-color: #FF385C !important;
+  border-top-color: #1D4ED8 !important;
 }
 .ring-brand-primary:focus {
-  --tw-ring-color: #FF385C !important;
+  --tw-ring-color: #1D4ED8 !important;
 }
 
 /* Minimal custom scrollbar & spinner keyframe */
@@ -56,3 +61,44 @@ a.bg-brand-primary:hover {
 .animate-spinner {
   animation: spin 0.7s linear infinite;
 }
+
+/* Toast and Drawer Animations */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+.animate-pulse-glow {
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+/* Skeleton Shimmer Wave Animation */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite ease-in-out;
+}
+

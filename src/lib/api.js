@@ -5,6 +5,40 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
+// ─── Photo URL Resolution Helper ───────────────────────────────────────────
+
+export const SAMPLE_FALLBACK_CAR_PHOTOS = [
+  "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1606016159991-dfe4f2746ad5?auto=format&fit=crop&w=1200&q=80",
+];
+
+/**
+ * Resolves a car photo path or URL from MongoDB into a valid, loadable image URL.
+ * Handles relative backend uploads (/uploads/cars/...), full URLs, and fallbacks.
+ */
+export function getCarPhotoUrl(photo, fallbackIndex = 0) {
+  if (!photo || typeof photo !== "string") {
+    return SAMPLE_FALLBACK_CAR_PHOTOS[fallbackIndex % SAMPLE_FALLBACK_CAR_PHOTOS.length];
+  }
+
+  const trimmed = photo.trim();
+  if (!trimmed || trimmed.includes("example.com")) {
+    return SAMPLE_FALLBACK_CAR_PHOTOS[fallbackIndex % SAMPLE_FALLBACK_CAR_PHOTOS.length];
+  }
+
+  // Absolute external image URL
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  // Relative path (e.g. /uploads/cars/car-123.jpg)
+  const cleanPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${BASE.replace(/\/+$/, "")}${cleanPath}`;
+}
+
 // ─── Token Refresh & Auto-Retry Mechanism ───────────────────────────────────
 
 let isRefreshing = false;

@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { kidClient, session } from "@/lib/kid-auth";
 
 function KIDCallbackContent() {
@@ -68,23 +69,11 @@ function KIDCallbackContent() {
             <div className="relative w-16 h-16">
               <div className="absolute inset-0 rounded-full border-4 border-red-500/20 border-t-red-500 animate-spin" />
               <div className="absolute inset-3 flex items-center justify-center">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V6L12 2z"
-                    fill="currentColor"
-                    fillOpacity="0.15"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M9 12l2 2 4-4"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                <ShieldCheck
+                  size={24}
+                  strokeWidth={2}
+                  className="text-current"
+                />
               </div>
             </div>
             <div>

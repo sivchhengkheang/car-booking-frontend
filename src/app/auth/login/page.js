@@ -2,6 +2,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { loginUser } from "@/lib/api";
 import { redirectToKID } from "@/lib/kid-auth";
@@ -129,10 +130,11 @@ function LoginContent() {
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-white shadow-inner flex-shrink-0">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V6L12 2z" fill="white" fillOpacity="0.25" stroke="white" strokeWidth="2" strokeLinejoin="round"/>
-                  <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <ShieldCheck
+                  size={20}
+                  strokeWidth={2}
+                  className="text-white"
+                />
               </div>
               <div className="text-left">
                 <div className="text-sm font-extrabold text-white leading-tight flex items-center gap-1.5">

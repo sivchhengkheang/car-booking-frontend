@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 import { session } from "@/lib/kid-auth";
 
 /** Copies text to clipboard and returns a short-lived "Copied!" signal. */
@@ -138,10 +139,11 @@ export default function KIDProfilePage() {
 
             {/* Verified badge */}
             <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V6L12 2z" fill="#10b981" fillOpacity="0.15" stroke="#10b981" strokeWidth="2" strokeLinejoin="round"/>
-                <path d="M9 12l2 2 4-4" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <ShieldCheck
+                size={12}
+                strokeWidth={2}
+                className="text-emerald-600"
+              />
               KID Verified
             </div>
           </div>
