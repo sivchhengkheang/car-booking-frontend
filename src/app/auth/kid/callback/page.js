@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, CheckCircle2, AlertCircle } from "lucide-react";
 import { kidClient, session } from "@/lib/kid-auth";
 
 function KIDCallbackContent() {
@@ -62,52 +62,53 @@ function KIDCallbackContent() {
   }, [router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm text-center">
         {status === "exchanging" && (
-          <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-10 flex flex-col items-center gap-5">
-            <div className="relative w-16 h-16">
-              <div className="absolute inset-0 rounded-full border-4 border-red-500/20 border-t-red-500 animate-spin" />
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 flex flex-col items-center gap-4">
+            <div className="relative w-14 h-14">
+              <div className="absolute inset-0 rounded-full border-3 border-slate-200 border-t-rose-600 animate-spin" />
               <div className="absolute inset-3 flex items-center justify-center">
-                <ShieldCheck
-                  size={24}
-                  strokeWidth={2}
-                  className="text-current"
-                />
+                <ShieldCheck size={22} strokeWidth={2} className="text-slate-800" />
               </div>
             </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900">Verifying your KID identity…</h1>
-              <p className="text-xs text-gray-500 mt-1">Exchanging authorization code with PKCE (S256)</p>
+              <h1 className="text-base font-bold text-slate-900">Signing you in…</h1>
+              <p className="text-xs text-slate-500 mt-1">Verifying your KOOMPI ID</p>
             </div>
           </div>
         )}
 
         {status === "success" && (
-          <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-10 flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-3xl">✅</div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 flex flex-col items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900">Identity Verified!</h1>
-              <p className="text-xs text-gray-500 mt-1">Redirecting to your profile…</p>
+              <h1 className="text-base font-bold text-slate-900">Signed in</h1>
+              <p className="text-xs text-slate-500 mt-1">Redirecting…</p>
             </div>
           </div>
         )}
 
         {status === "error" && (
-          <div className="bg-white rounded-3xl shadow-xl border border-red-100 p-10 flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center text-3xl">⚠️</div>
+          <div className="bg-white rounded-2xl border border-rose-200 p-8 flex flex-col items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+              <AlertCircle className="w-6 h-6" />
+            </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900">Authentication Failed</h1>
-              <p className="text-xs text-red-600 mt-1 bg-red-50 px-3 py-2 rounded-lg font-mono break-words">
+              <h1 className="text-base font-bold text-slate-900">Sign-in failed</h1>
+              <p className="text-xs text-rose-600 mt-1.5 bg-rose-50 px-3 py-2 rounded-lg break-words">
                 {errorMessage}
               </p>
             </div>
             <button
               id="kid-callback-retry-btn"
+              type="button"
               onClick={() => router.push("/auth/login")}
-              className="mt-2 w-full py-3 rounded-xl font-bold text-sm bg-red-500 hover:bg-red-600 text-white shadow-md hover:shadow-lg transition-all cursor-pointer"
+              className="mt-1 w-full py-2.5 rounded-xl font-semibold text-xs bg-slate-900 hover:bg-blue-600 text-white transition-colors cursor-pointer"
             >
-              Back to Login
+              Back to sign in
             </button>
           </div>
         )}

@@ -9,16 +9,11 @@
  * The client should clear its local session regardless of the response.
  */
 
-import { KIDOAuthServer } from '@kid-oauth/sdk/server';
 import { NextResponse } from 'next/server';
-
-const kidServer = new KIDOAuthServer({
-  clientId: process.env.KID_CLIENT_ID,
-  clientSecret: process.env.KID_CLIENT_SECRET,
-  redirectUri: process.env.KID_REDIRECT_URI,
-});
+import { getKidServer } from '@/lib/kid-server';
 
 export async function POST(request) {
+  const kidServer = getKidServer();
   try {
     const body = await request.json();
     const { refresh_token } = body;

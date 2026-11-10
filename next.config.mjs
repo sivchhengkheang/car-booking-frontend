@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // This out put need docker for run 
+  output: 'standalone',
   /* config options here */
   allowedDevOrigins: ['disparity-document-active.ngrok-free.dev'],
   async rewrites() {

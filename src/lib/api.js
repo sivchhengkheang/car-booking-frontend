@@ -53,39 +53,32 @@ function onRefreshed(token) {
   refreshSubscribers = [];
 }
 
+function isTokenExpiringSoon(token, bufferSeconds = 60) {
+  if (!token) return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      const payload = JSON.parse(atob(parts[1]));
+      if (payload.exp && Date.now() >= (payload.exp - bufferSeconds) * 1000) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Retrieves a valid access token. If current token is expired or close to expiring (within 60s),
- * it automatically refreshes it in the background using the stored refresh token.
+ * Forces a token refresh using the stored Express or KID OAuth refresh token.
+ * Concurrent callers share the in-flight request. Returns the new access token or null.
  */
-export async function getValidAccessToken() {
+export async function refreshAuthToken() {
   if (typeof window === "undefined") return null;
 
-  let token = localStorage.getItem("token") || sessionStorage.getItem("kid_access_token");
   const refreshToken =
     localStorage.getItem("refreshToken") || sessionStorage.getItem("kid_refresh_token");
-
-  if (!refreshToken) return token;
-
-  let isExpired = false;
-  if (token) {
-    try {
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]));
-        if (payload.exp && Date.now() >= (payload.exp - 60) * 1000) {
-          isExpired = true;
-        }
-      }
-    } catch {
-      // Ignore decode error, let network call test it
-    }
-  } else {
-    isExpired = true;
-  }
-
-  if (!isExpired) {
-    return token;
-  }
+  if (!refreshToken) return null;
 
   if (isRefreshing) {
     return new Promise((resolve) => {
@@ -140,31 +133,51 @@ export async function getValidAccessToken() {
         if (syncRes.ok) {
           const syncData = await syncRes.json();
           const newToken = syncData.accessToken || syncData.token;
-          localStorage.setItem("token", newToken);
-          if (syncData.refreshToken) {
-            localStorage.setItem("refreshToken", syncData.refreshToken);
-          }
-          if (kidTokens.refresh_token) {
-            sessionStorage.setItem("kid_refresh_token", kidTokens.refresh_token);
-          }
-          sessionStorage.setItem("kid_access_token", kidTokens.access_token);
+          if (newToken) {
+            localStorage.setItem("token", newToken);
+            if (syncData.refreshToken) {
+              localStorage.setItem("refreshToken", syncData.refreshToken);
+            }
+            if (kidTokens.refresh_token) {
+              sessionStorage.setItem("kid_refresh_token", kidTokens.refresh_token);
+            }
+            sessionStorage.setItem("kid_access_token", kidTokens.access_token);
 
-          isRefreshing = false;
-          onRefreshed(newToken);
-          return newToken;
+            isRefreshing = false;
+            onRefreshed(newToken);
+            return newToken;
+          }
         }
       }
     }
 
     isRefreshing = false;
     onRefreshed(null);
-    return token;
+    return null;
   } catch (err) {
     console.error("Auto token refresh failed:", err);
     isRefreshing = false;
     onRefreshed(null);
-    return token;
+    return null;
   }
+}
+
+/**
+ * Retrieves a valid access token. If current token is expired or close to expiring (within 60s),
+ * it automatically refreshes it in the background using the stored refresh token.
+ */
+export async function getValidAccessToken() {
+  if (typeof window === "undefined") return null;
+
+  const token = localStorage.getItem("token") || sessionStorage.getItem("kid_access_token");
+  const refreshToken =
+    localStorage.getItem("refreshToken") || sessionStorage.getItem("kid_refresh_token");
+
+  if (!refreshToken) return token;
+  if (token && !isTokenExpiringSoon(token)) return token;
+
+  const newToken = await refreshAuthToken();
+  return newToken || token;
 }
 
 /**
@@ -172,7 +185,10 @@ export async function getValidAccessToken() {
  * Automatically injects Bearer token, intercepts 401s, refreshes token, and retries seamlessly.
  */
 export async function authFetch(url, options = {}, explicitToken = null) {
-  let token = explicitToken || (await getValidAccessToken());
+  const token =
+    explicitToken && !isTokenExpiringSoon(explicitToken)
+      ? explicitToken
+      : await getValidAccessToken();
 
   const headers = { ...(options.headers || {}) };
   if (token) {
@@ -187,43 +203,14 @@ export async function authFetch(url, options = {}, explicitToken = null) {
 
   // If 401 Unauthorized, automatically attempt refresh & retry once
   if (res.status === 401) {
-    const refreshToken =
-      typeof window !== "undefined"
-        ? localStorage.getItem("refreshToken") || sessionStorage.getItem("kid_refresh_token")
-        : null;
-
-    if (refreshToken) {
-      try {
-        const refreshRes = await fetch(`${BASE}/api/v1/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ refreshToken }),
-        });
-
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          if (refreshData.success && (refreshData.accessToken || refreshData.token)) {
-            const newToken = refreshData.accessToken || refreshData.token;
-            if (typeof window !== "undefined") {
-              localStorage.setItem("token", newToken);
-              if (refreshData.refreshToken) {
-                localStorage.setItem("refreshToken", refreshData.refreshToken);
-                sessionStorage.setItem("kid_refresh_token", refreshData.refreshToken);
-              }
-            }
-
-            headers["Authorization"] = `Bearer ${newToken}`;
-            res = await fetch(url, {
-              ...options,
-              headers,
-              credentials: "include",
-            });
-          }
-        }
-      } catch (retryErr) {
-        console.warn("Auto-refresh retry failed:", retryErr);
-      }
+    const newToken = await refreshAuthToken();
+    if (newToken) {
+      headers["Authorization"] = `Bearer ${newToken}`;
+      res = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
     }
   }
 
@@ -265,16 +252,6 @@ export async function registerUser(data) {
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify(data),
-  });
-  return res.json();
-}
-
-export async function refreshAuthToken(refreshToken) {
-  const res = await fetch(`${BASE}/api/v1/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ refreshToken }),
   });
   return res.json();
 }
@@ -535,6 +512,19 @@ export async function cancelBooking(id, reason, token) {
   return res.json();
 }
 
+export async function extendBooking(id, { newEndDate }, token) {
+  const res = await authFetch(
+    `${BASE}/api/v1/bookings/${id}/extend`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ newEndDate }),
+    },
+    token
+  );
+  return res.json();
+}
+
 export async function confirmBookingPickup(id, token) {
   const res = await authFetch(`${BASE}/api/v1/bookings/${id}/confirm`, { method: "PATCH" }, token);
   return res.json();
@@ -569,11 +559,12 @@ export async function createBookingReview(bookingId, { rating, comment }, token)
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
 export async function checkoutPayment(param, token, idempotencyKey = null) {
-  let bookingId, successUrl, cancelUrl;
+  let bookingId, successUrl, cancelUrl, failureUrl;
   if (typeof param === "object" && param !== null) {
     bookingId = param.bookingId;
     successUrl = param.successUrl;
     cancelUrl = param.cancelUrl;
+    failureUrl = param.failureUrl;
   } else {
     bookingId = param;
   }
@@ -588,7 +579,7 @@ export async function checkoutPayment(param, token, idempotencyKey = null) {
     {
       method: "POST",
       headers,
-      body: JSON.stringify({ bookingId, successUrl, cancelUrl }),
+      body: JSON.stringify({ bookingId, successUrl, cancelUrl, failureUrl }),
     },
     token
   );
@@ -627,6 +618,15 @@ export async function refundPayment(paymentId, data, token) {
     },
     token
   );
+  return res.json();
+}
+
+export async function validatePromoCode(code) {
+  const res = await fetch(`${BASE}/api/v1/payments/validate-promo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
   return res.json();
 }
 

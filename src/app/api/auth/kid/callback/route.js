@@ -10,17 +10,12 @@
  * 15. Import from @kid-oauth/sdk/server, never root.
  */
 
-import { KIDOAuthServer, isKIDError } from '@kid-oauth/sdk/server';
+import { isKIDError } from '@kid-oauth/sdk/server';
 import { NextResponse } from 'next/server';
-
-const kidServer = new KIDOAuthServer({
-  clientId: process.env.KID_CLIENT_ID,
-  clientSecret: process.env.KID_CLIENT_SECRET,
-  redirectUri: process.env.KID_REDIRECT_URI,
-  baseUrl: process.env.KID_BASE_URL || 'https://api.kid.koompi.org',
-});
+import { getKidServer } from '@/lib/kid-server';
 
 export async function POST(request) {
+  const kidServer = getKidServer();
   try {
     const body = await request.json();
     const { code, codeVerifier } = body;

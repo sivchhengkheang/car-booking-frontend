@@ -1,13 +1,15 @@
 "use client";
-import { useState, useEffect, Suspense, useMemo } from "react";
+import { useState, useEffect, Suspense, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import Breadcrumb from "@/components/Breadcrumb";
 import {
   getMyBookings,
   getBookingById,
   createBooking,
   cancelBooking,
+  extendBooking,
   checkoutPayment,
   getCar,
   getCarPhotoUrl,
@@ -35,6 +37,7 @@ import {
   Calendar,
   Sparkles,
   RotateCcw,
+  X,
 } from "lucide-react";
 
 function getToken() {
@@ -49,11 +52,80 @@ function formatSeconds(secs) {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
+function extractDriverLicenseNumber(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    return value === "[object Object]" ? "" : value;
+  }
+  if (typeof value === "object") {
+    return value.idNumber || value.number || "";
+  }
+  return "";
+}
+
+function RequiredStar() {
+  return <span className="text-rose-500 ml-0.5">*</span>;
+}
+
+const CHECKOUT_DRAFT_KEY = "dkh_checkout_form_draft";
+
+function saveCheckoutDraft(draft, bId, cId) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = JSON.stringify(draft);
+    localStorage.setItem(CHECKOUT_DRAFT_KEY, raw);
+    sessionStorage.setItem(CHECKOUT_DRAFT_KEY, raw);
+    if (bId && bId !== "basket") {
+      localStorage.setItem(`dkh_checkout_form_draft_${bId}`, raw);
+      sessionStorage.setItem(`dkh_checkout_form_draft_${bId}`, raw);
+    }
+    if (cId) {
+      localStorage.setItem(`dkh_checkout_form_draft_${cId}`, raw);
+    }
+  } catch (e) {
+    console.warn("Could not save checkout draft", e);
+  }
+}
+
+function loadCheckoutDraft(bId, cId) {
+  if (typeof window === "undefined") return null;
+  try {
+    const keys = [];
+    if (bId && bId !== "basket") keys.push(`dkh_checkout_form_draft_${bId}`);
+    if (cId) keys.push(`dkh_checkout_form_draft_${cId}`);
+    keys.push(CHECKOUT_DRAFT_KEY);
+
+    for (const k of keys) {
+      const stored = localStorage.getItem(k) || sessionStorage.getItem(k);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load checkout draft", e);
+  }
+  return null;
+}
+
+function clearCheckoutDraft(bId) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(CHECKOUT_DRAFT_KEY);
+    sessionStorage.removeItem(CHECKOUT_DRAFT_KEY);
+    if (bId) {
+      localStorage.removeItem(`dkh_checkout_form_draft_${bId}`);
+      sessionStorage.removeItem(`dkh_checkout_form_draft_${bId}`);
+    }
+  } catch (e) {}
+}
+
 function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("bookingId");
   const carIdParam = searchParams.get("carId");
+  const itemIdParam = searchParams.get("itemId");
 
   const {
     items,
@@ -62,11 +134,26 @@ function CheckoutContent() {
     resetHold,
     showToast,
     clearBasket,
+    removeFromBasket,
   } = useBasket();
+
+  // Find the exact single car item selected for checkout
+  const targetBasketItem = useMemo(() => {
+    if (!items || items.length === 0) return null;
+    if (itemIdParam) {
+      const found = items.find((i) => i.id === itemIdParam);
+      if (found) return found;
+    }
+    if (carIdParam) {
+      const found = items.find((i) => (i.car?._id || i.car?.id) === carIdParam);
+      if (found) return found;
+    }
+    return items[0];
+  }, [items, itemIdParam, carIdParam]);
 
   const [booking, setBooking] = useState(null);
   const [directCar, setDirectCar] = useState(() => {
-    return items.length > 0 ? items[0].car : null;
+    return targetBasketItem ? targetBasketItem.car : null;
   });
   const [loading, setLoading] = useState(() => {
     return !(bookingId === "basket" || (!bookingId && items.length > 0));
@@ -75,15 +162,38 @@ function CheckoutContent() {
   const [renewing, setRenewing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState(null);
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+
+  // Payment Cancelled / Failed Detection & Modal State
+  const paymentStatusParam =
+    searchParams.get("paymentStatus") ||
+    searchParams.get("payment") ||
+    searchParams.get("status");
+  const isPaymentInterrupted =
+    paymentStatusParam === "cancelled" ||
+    paymentStatusParam === "failed" ||
+    paymentStatusParam === "cancel" ||
+    paymentStatusParam === "fail";
+  const [showResumeModal, setShowResumeModal] = useState(() => Boolean(isPaymentInterrupted));
+
+  useEffect(() => {
+    if (isPaymentInterrupted) {
+      setShowResumeModal(true);
+    }
+  }, [isPaymentInterrupted]);
 
   // Live Hold Countdown State
   const [remainingSeconds, setRemainingSeconds] = useState(900);
   const [isExpired, setIsExpired] = useState(false);
 
-  // Driver Details & License
+  // Driver Details & License Initialized with Saved Draft fallback
   const [driverName, setDriverName] = useState(() => {
     if (typeof window === "undefined") return "";
     try {
+      const draft = loadCheckoutDraft(bookingId, carIdParam);
+      if (draft && draft.driverName !== undefined && draft.driverName !== "") {
+        return draft.driverName;
+      }
       const stored = localStorage.getItem("user");
       return stored ? JSON.parse(stored).name || "" : "";
     } catch {
@@ -93,6 +203,10 @@ function CheckoutContent() {
   const [driverPhone, setDriverPhone] = useState(() => {
     if (typeof window === "undefined") return "";
     try {
+      const draft = loadCheckoutDraft(bookingId, carIdParam);
+      if (draft && draft.driverPhone !== undefined && draft.driverPhone !== "") {
+        return draft.driverPhone;
+      }
       const stored = localStorage.getItem("user");
       return stored ? JSON.parse(stored).phoneNumber || "" : "";
     } catch {
@@ -102,6 +216,10 @@ function CheckoutContent() {
   const [driverEmail, setDriverEmail] = useState(() => {
     if (typeof window === "undefined") return "";
     try {
+      const draft = loadCheckoutDraft(bookingId, carIdParam);
+      if (draft && draft.driverEmail !== undefined && draft.driverEmail !== "") {
+        return draft.driverEmail;
+      }
       const stored = localStorage.getItem("user");
       return stored ? JSON.parse(stored).email || "" : "";
     } catch {
@@ -111,10 +229,14 @@ function CheckoutContent() {
   const [driverLicenseNumber, setDriverLicenseNumber] = useState(() => {
     if (typeof window === "undefined") return "";
     try {
+      const draft = loadCheckoutDraft(bookingId, carIdParam);
+      const draftDl = extractDriverLicenseNumber(draft?.driverLicenseNumber);
+      if (draftDl) return draftDl;
       const stored = localStorage.getItem("user");
       if (stored) {
         const u = JSON.parse(stored);
-        if (u.driverLicense) return u.driverLicense;
+        const userDl = extractDriverLicenseNumber(u.driverLicense);
+        if (userDl) return userDl;
         if (u.kid) return `KID-DL-${u.kid}`;
       }
       return "";
@@ -122,21 +244,153 @@ function CheckoutContent() {
       return "";
     }
   });
-  const [licenseFrontUploaded, setLicenseFrontUploaded] = useState(false);
-  const [licenseBackUploaded, setLicenseBackUploaded] = useState(false);
-  const [frontFileName, setFrontFileName] = useState("");
-  const [backFileName, setBackFileName] = useState("");
 
-  // Pickup & Logistics
-  const [deliveryOption, setDeliveryOption] = useState("branch");
-  const [pickupBranch, setPickupBranch] = useState("Phnom Penh Airport Terminal Depot");
-  const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [pickupTime, setPickupTime] = useState("09:00 AM");
-  const [returnTime, setReturnTime] = useState("06:00 PM");
-  const [flightNumber, setFlightNumber] = useState("");
+  const [idType, setIdType] = useState(() => {
+    if (typeof window === "undefined") return "Driver's License";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.idType || "Driver's License";
+  });
 
-  // Terms Agreement
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [dateOfBirth, setDateOfBirth] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.dateOfBirth || "";
+  });
+
+  const [licenseFrontUploaded, setLicenseFrontUploaded] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return Boolean(draft?.licenseFrontUploaded);
+  });
+  const [licenseBackUploaded, setLicenseBackUploaded] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return Boolean(draft?.licenseBackUploaded);
+  });
+  const [frontFileName, setFrontFileName] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.frontFileName || "";
+  });
+  const [backFileName, setBackFileName] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.backFileName || "";
+  });
+
+  // Pickup & Logistics Initialized with Saved Draft fallback
+  const [deliveryOption, setDeliveryOption] = useState(() => {
+    if (typeof window === "undefined") return "branch";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.deliveryOption || "branch";
+  });
+  const [pickupBranch, setPickupBranch] = useState(() => {
+    if (typeof window === "undefined") return "Phnom Penh Airport Terminal Depot";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.pickupBranch || "Phnom Penh Airport Terminal Depot";
+  });
+  const [deliveryAddress, setDeliveryAddress] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.deliveryAddress || "";
+  });
+  const [pickupTime, setPickupTime] = useState(() => {
+    if (typeof window === "undefined") return "Anytime";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.pickupTime || "Anytime";
+  });
+  const [returnTime, setReturnTime] = useState(() => {
+    if (typeof window === "undefined") return "Anytime";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.returnTime || "Anytime";
+  });
+  const [flightNumber, setFlightNumber] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return draft?.flightNumber || "";
+  });
+
+  // Terms Agreement Initialized with Saved Draft fallback
+  const [acceptedTerms, setAcceptedTerms] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    return Boolean(draft?.acceptedTerms);
+  });
+
+  // Flag to avoid race conditions when hydrating/restoring
+  const isDraftRestoredRef = useRef(false);
+
+  // Restore draft form inputs on mount or param change
+  useEffect(() => {
+    const draft = loadCheckoutDraft(bookingId, carIdParam);
+    if (draft) {
+      if (draft.driverName) setDriverName(draft.driverName);
+      if (draft.driverPhone) setDriverPhone(draft.driverPhone);
+      if (draft.driverEmail) setDriverEmail(draft.driverEmail);
+      const restoredDl = extractDriverLicenseNumber(draft.driverLicenseNumber);
+      if (restoredDl) setDriverLicenseNumber(restoredDl);
+      if (draft.idType) setIdType(draft.idType);
+      if (draft.dateOfBirth) setDateOfBirth(draft.dateOfBirth);
+      if (draft.licenseFrontUploaded != null) setLicenseFrontUploaded(Boolean(draft.licenseFrontUploaded));
+      if (draft.frontFileName) setFrontFileName(draft.frontFileName);
+      if (draft.licenseBackUploaded != null) setLicenseBackUploaded(Boolean(draft.licenseBackUploaded));
+      if (draft.backFileName) setBackFileName(draft.backFileName);
+      if (draft.deliveryOption) setDeliveryOption(draft.deliveryOption);
+      if (draft.pickupBranch) setPickupBranch(draft.pickupBranch);
+      if (draft.deliveryAddress) setDeliveryAddress(draft.deliveryAddress);
+      if (draft.pickupTime) setPickupTime(draft.pickupTime);
+      if (draft.returnTime) setReturnTime(draft.returnTime);
+      if (draft.flightNumber) setFlightNumber(draft.flightNumber);
+      if (draft.acceptedTerms != null) setAcceptedTerms(Boolean(draft.acceptedTerms));
+    }
+    isDraftRestoredRef.current = true;
+  }, [bookingId, carIdParam]);
+
+  // Auto-save form inputs so user never loses their filled data
+  useEffect(() => {
+    if (!isDraftRestoredRef.current) return;
+    const currentDraft = {
+      driverName,
+      driverPhone,
+      driverEmail,
+      driverLicenseNumber,
+      idType,
+      dateOfBirth,
+      licenseFrontUploaded,
+      frontFileName,
+      licenseBackUploaded,
+      backFileName,
+      deliveryOption,
+      pickupBranch,
+      deliveryAddress,
+      pickupTime,
+      returnTime,
+      flightNumber,
+      acceptedTerms,
+      savedAt: Date.now(),
+    };
+    saveCheckoutDraft(currentDraft, bookingId, carIdParam);
+  }, [
+    driverName,
+    driverPhone,
+    driverEmail,
+    driverLicenseNumber,
+    idType,
+    dateOfBirth,
+    licenseFrontUploaded,
+    frontFileName,
+    licenseBackUploaded,
+    backFileName,
+    deliveryOption,
+    pickupBranch,
+    deliveryAddress,
+    pickupTime,
+    returnTime,
+    flightNumber,
+    acceptedTerms,
+    bookingId,
+    carIdParam,
+  ]);
 
   // Fetch Booking or Car
   useEffect(() => {
@@ -175,7 +429,8 @@ function CheckoutContent() {
               if (c.name && !driverName) setDriverName(c.name);
               if (c.email && !driverEmail) setDriverEmail(c.email);
               if (c.phoneNumber && !driverPhone) setDriverPhone(c.phoneNumber);
-              if (c.driverLicense && !driverLicenseNumber) setDriverLicenseNumber(c.driverLicense);
+              const customerDl = extractDriverLicenseNumber(c.driverLicense);
+              if (customerDl && !driverLicenseNumber) setDriverLicenseNumber(customerDl);
             }
           } else {
             return getMyBookings(token || "dummy").then((myRes) => {
@@ -208,7 +463,8 @@ function CheckoutContent() {
   const activeCar =
     (booking?.car && typeof booking.car === "object" ? booking.car : null) ||
     directCar ||
-    (items.length > 0 ? items[0].car : null);
+    targetBasketItem?.car ||
+    null;
 
   const carTitle =
     activeCar?.brand || activeCar?.make
@@ -220,29 +476,30 @@ function CheckoutContent() {
 
   const start = useMemo(() => {
     if (booking?.startDate) return new Date(booking.startDate);
-    if (items.length > 0 && items[0].startDate) return new Date(items[0].startDate);
+    if (targetBasketItem?.startDate) return new Date(targetBasketItem.startDate);
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d;
-  }, [booking, items]);
+  }, [booking, targetBasketItem]);
 
   const end = useMemo(() => {
     if (booking?.endDate) return new Date(booking.endDate);
-    if (items.length > 0 && items[0].endDate) return new Date(items[0].endDate);
+    if (targetBasketItem?.endDate) return new Date(targetBasketItem.endDate);
     const d = new Date();
     d.setDate(d.getDate() + 4);
     return d;
-  }, [booking, items]);
+  }, [booking, targetBasketItem]);
 
   const totalDays = booking?.totalDays || Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
   const dailyRate = activeCar?.pricePerDay || 35;
   const carSubtotal = dailyRate * totalDays;
+  const itemAddOnsTotal = targetBasketItem?.addOnsTotal || 0;
 
-  // Single source of truth: Database booking.totalPrice
+  // Single source of truth: Database booking.totalPrice or single car subtotal + add-ons
   const totalAmount =
     booking?.totalPrice != null
       ? Number(booking.totalPrice)
-      : carSubtotal;
+      : carSubtotal + itemAddOnsTotal;
 
   // Live 1-second hold countdown ticker
   useEffect(() => {
@@ -319,6 +576,7 @@ function CheckoutContent() {
   };
 
   const handleCancelBooking = async () => {
+    clearCheckoutDraft(booking?._id);
     const token = getToken();
     const targetCarId = activeCar?._id || booking?.car?._id || booking?.car || carIdParam;
     if (!booking?._id) {
@@ -338,8 +596,58 @@ function CheckoutContent() {
     }
   };
 
+  const [extending, setExtending] = useState(false);
+
+  const handleModifyDurationFromCheckout = async (daysChange) => {
+    const token = getToken();
+    if (!token) return;
+
+    const currentStart = start ? new Date(start) : new Date();
+    const currentEnd = end ? new Date(end) : new Date();
+    const newEnd = new Date(currentEnd);
+    newEnd.setDate(newEnd.getDate() + daysChange);
+
+    // Validate minimum duration of 1 day
+    const diffDays = Math.ceil((newEnd.getTime() - currentStart.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 1) {
+      showToast("Minimum rental duration is 1 day.", "warning");
+      return;
+    }
+
+    setExtending(true);
+    try {
+      if (booking?._id) {
+        const res = await extendBooking(booking._id, { newEndDate: newEnd.toISOString() }, token);
+        if (res.success && res.booking) {
+          setBooking(res.booking);
+          if (daysChange < 0) {
+            showToast(`Rental reduced by ${Math.abs(daysChange)} day. New total: ${res.booking.totalDays} days.`, "success");
+          } else {
+            showToast(`Rental extended by ${daysChange} ${daysChange === 1 ? 'day' : 'days'}! Total: ${res.booking.totalDays} days.`, "success");
+          }
+          if (res.holdExpiresAt) {
+            const expTime = new Date(res.holdExpiresAt).getTime();
+            const diff = Math.max(0, Math.floor((expTime - Date.now()) / 1000));
+            setRemainingSeconds(diff);
+            setIsExpired(false);
+          }
+        } else {
+          showToast(res.message || "Could not update booking dates.", "error");
+        }
+      }
+    } catch (err) {
+      showToast(err?.message || "Failed to update booking dates", "error");
+    } finally {
+      setExtending(false);
+    }
+  };
+
+  const handleExtendFromCheckout = (daysToAdd) => handleModifyDurationFromCheckout(daysToAdd);
+  const handleDecreaseFromCheckout = (daysToSubtract = 1) => handleModifyDurationFromCheckout(-daysToSubtract);
+
   const handleFileUpload = (side, file) => {
     if (!file) return;
+    setError(null);
     if (side === "front") {
       setLicenseFrontUploaded(true);
       setFrontFileName(file.name);
@@ -351,31 +659,59 @@ function CheckoutContent() {
     }
   };
 
-  const isDriverComplete = Boolean(driverName.trim() && driverPhone.trim() && driverEmail.trim());
+  const handleRemovePhoto = (side, e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (side === "front") {
+      setLicenseFrontUploaded(false);
+      setFrontFileName("");
+      showToast("Front document photo removed");
+    } else {
+      setLicenseBackUploaded(false);
+      setBackFileName("");
+      showToast("Back document photo removed");
+    }
+  };
+
+  const isDriverComplete = Boolean(
+    driverName.trim() &&
+      driverPhone.trim() &&
+      driverEmail.trim() &&
+      dateOfBirth.trim() &&
+      idType.trim() &&
+      driverLicenseNumber.trim() &&
+      licenseFrontUploaded &&
+      licenseBackUploaded
+  );
 
   async function handlePay() {
     if (isExpired) {
       setError("Reservation hold has expired. Please re-reserve to continue.");
       return;
     }
-    if (!driverName.trim()) {
-      setError("Please enter the driver's name.");
-      document.getElementById("driver-info")?.scrollIntoView({ behavior: "smooth" });
-      return;
-    }
-    if (!driverPhone.trim()) {
-      setError("Please enter a phone number.");
-      document.getElementById("driver-info")?.scrollIntoView({ behavior: "smooth" });
-      return;
-    }
-    if (!driverEmail.trim()) {
-      setError("Please enter an email address.");
-      document.getElementById("driver-info")?.scrollIntoView({ behavior: "smooth" });
-      return;
-    }
-    if (!acceptedTerms) {
-      setError("Please agree to the rental terms before proceeding.");
-      document.getElementById("payment-section")?.scrollIntoView({ behavior: "smooth" });
+
+    setAttemptedSubmit(true);
+
+    const checks = [
+      { valid: Boolean(driverName.trim()), message: "Please enter the driver's full name.", targetId: "driver-info" },
+      { valid: Boolean(driverPhone.trim()), message: "Please enter a phone number.", targetId: "driver-info" },
+      { valid: Boolean(driverEmail.trim()), message: "Please enter an email address.", targetId: "driver-info" },
+      { valid: Boolean(dateOfBirth.trim()), message: "Please enter your date of birth.", targetId: "driver-info" },
+      { valid: Boolean(idType.trim()), message: "Please select a document type.", targetId: "driver-info" },
+      { valid: Boolean(driverLicenseNumber.trim()), message: "Please enter your document number.", targetId: "driver-info" },
+      { valid: licenseFrontUploaded, message: "Please upload the front photo of your ID.", targetId: "id-photos-section" },
+      { valid: licenseBackUploaded, message: "Please upload the back photo of your ID.", targetId: "id-photos-section" },
+      { valid: acceptedTerms, message: "Please agree to the rental terms before proceeding.", targetId: "payment-section" },
+    ];
+
+    const failed = checks.find((c) => !c.valid);
+    if (failed) {
+      setShowResumeModal(false);
+      setError(failed.message);
+      showToast?.(failed.message, "error");
+      document.getElementById(failed.targetId)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
@@ -405,6 +741,7 @@ function CheckoutContent() {
           targetBookingId = createRes.booking._id;
           setBooking(createRes.booking);
         } else {
+          setShowResumeModal(false);
           setError(createRes.message || "Could not reserve vehicle. Please check date availability.");
           setPaying(false);
           return;
@@ -412,17 +749,42 @@ function CheckoutContent() {
       }
 
       if (!targetBookingId) {
+        setShowResumeModal(false);
         setError("Booking reference not found. Please pick your dates first.");
         setPaying(false);
         return;
       }
+
+      // Persist the latest checkout form state right before redirecting to Baray
+      const currentDraft = {
+        driverName,
+        driverPhone,
+        driverEmail,
+        driverLicenseNumber,
+        idType,
+        dateOfBirth,
+        licenseFrontUploaded,
+        frontFileName,
+        licenseBackUploaded,
+        backFileName,
+        deliveryOption,
+        pickupBranch,
+        deliveryAddress,
+        pickupTime,
+        returnTime,
+        flightNumber,
+        acceptedTerms,
+        savedAt: Date.now(),
+      };
+      saveCheckoutDraft(currentDraft, targetBookingId, activeCar?._id || carIdParam);
 
       const clientOrigin = window.location.origin;
       const data = await checkoutPayment(
         {
           bookingId: targetBookingId,
           successUrl: `${clientOrigin}/booking/success?bookingId=${targetBookingId}&paid=true`,
-          cancelUrl: `${clientOrigin}/booking/checkout?bookingId=${targetBookingId}`,
+          cancelUrl: `${clientOrigin}/booking/checkout?bookingId=${targetBookingId}&paymentStatus=cancelled`,
+          failureUrl: `${clientOrigin}/booking/checkout?bookingId=${targetBookingId}&paymentStatus=failed`,
         },
         token
       );
@@ -431,29 +793,41 @@ function CheckoutContent() {
         data.paymentUrl || data.checkout?.paymentUrl || data.data?.paymentUrl;
 
       if (data.success && paymentUrl) {
-        clearBasket();
+        if (targetBasketItem?.id) {
+          removeFromBasket(targetBasketItem.id);
+        } else {
+          clearBasket();
+        }
         // Redirect customer directly to Baray checkout gateway
         window.location.href = paymentUrl;
         return;
       } else {
+        setShowResumeModal(false);
         setError(data.message || "Failed to initialize Baray payment gateway. Please try again.");
         setPaying(false);
       }
     } catch (err) {
       console.error("Payment checkout error:", err);
+      setShowResumeModal(false);
       setError(err?.message || "An unexpected error occurred while connecting to Baray.");
       setPaying(false);
     }
   }
 
-  const handleBackToBooking = () => {
-    const targetCarId =
-      carIdParam ||
-      booking?.car?._id ||
-      booking?.car?.id ||
-      items?.[0]?.car?._id ||
-      items?.[0]?.car?.id;
+  async function handleContinuePayment() {
+    await handlePay();
+  }
 
+  const targetCarId =
+    carIdParam ||
+    booking?.car?._id ||
+    booking?.car?.id ||
+    targetBasketItem?.car?._id ||
+    targetBasketItem?.car?.id;
+
+  const carDetailsUrl = targetCarId ? `/booking?carId=${targetCarId}` : "/";
+
+  const handleBackToBooking = () => {
     if (targetCarId) {
       router.push(`/booking?carId=${targetCarId}`);
     } else {
@@ -465,10 +839,45 @@ function CheckoutContent() {
     return (
       <>
         <Navbar />
-        <div className="text-center py-32">
-          <div className="w-9 h-9 border-3 border-slate-200 border-t-blue-600 rounded-full animate-spinner mx-auto mb-4" />
-          <p className="text-sm font-semibold text-slate-500">Loading checkout…</p>
-        </div>
+        <main
+          className="max-w-6xl mx-auto px-4 py-6 sm:py-8"
+          aria-busy="true"
+          aria-label="Loading checkout"
+        >
+          <Breadcrumb
+            className="mb-5"
+            items={[
+              { label: "Home", href: "/" },
+              { label: carTitle || "Booking", href: carDetailsUrl },
+              { label: "Checkout" },
+            ]}
+          />
+          <div className="h-11 rounded-xl skeleton-shimmer mb-6" />
+          <div className="mb-6 space-y-2">
+            <div className="h-7 w-36 rounded skeleton-shimmer" />
+            <div className="h-4 w-60 rounded skeleton-shimmer" />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 items-start">
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5">
+              <div className="h-6 w-40 rounded skeleton-shimmer" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="h-14 rounded-xl skeleton-shimmer" />
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                <div className="h-14 rounded-xl skeleton-shimmer" />
+                <div className="h-14 rounded-xl skeleton-shimmer" />
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+              <div className="h-6 w-24 rounded skeleton-shimmer" />
+              <div className="h-16 rounded-xl skeleton-shimmer" />
+              <div className="h-24 rounded-xl skeleton-shimmer" />
+              <div className="h-11 rounded-xl skeleton-shimmer" />
+            </div>
+          </div>
+        </main>
       </>
     );
   }
@@ -478,36 +887,43 @@ function CheckoutContent() {
       <Navbar />
 
       <main className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
-        {/* Back Link */}
-        <div className="mb-4">
-          <button
-            type="button"
-            onClick={handleBackToBooking}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer group"
-          >
-            <ArrowLeft
-              size={16}
-              strokeWidth={2.5}
-              className="transition-transform group-hover:-translate-x-0.5"
-            />
-            Back to car details
-          </button>
-        </div>
+        <Breadcrumb
+          className="mb-5"
+          items={[
+            { label: "Home", href: "/" },
+            { label: carTitle || "Booking", href: carDetailsUrl },
+            { label: "Checkout" },
+          ]}
+        />
 
-        {/* Hold Countdown Header Bar or Expired Card */}
+        {/* Interrupted Payment Banner */}
+        {isPaymentInterrupted && !showResumeModal && !isExpired && (
+          <div className="mb-5 p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                Payment incomplete. Hold active for{" "}
+                <strong className="font-mono">{formatSeconds(remainingSeconds)}</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowResumeModal(true)}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs cursor-pointer shrink-0"
+            >
+              Resume payment
+            </button>
+          </div>
+        )}
+
+        {/* Hold Status Bar */}
         {isExpired ? (
-          <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-rose-50 border border-rose-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                <Timer className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-rose-900">
-                  Reservation Expired
-                </h3>
-                <p className="text-xs text-rose-700 mt-0.5">
-                  Your 15-minute hold on this car ended. The car was released.
-                </p>
+          <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Timer className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <h3 className="text-sm font-bold text-rose-900">Reservation expired</h3>
+                <p className="text-xs text-rose-700">Your 15-minute hold ended.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -515,421 +931,256 @@ function CheckoutContent() {
                 type="button"
                 onClick={handleReReserve}
                 disabled={renewing}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold text-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>{renewing ? "Holding..." : "Re-reserve (+15m)"}</span>
+                <span>{renewing ? "Holding…" : "Re-reserve"}</span>
               </button>
               <button
                 type="button"
                 onClick={() => router.push(activeCar?._id ? `/booking?carId=${activeCar._id}` : "/")}
-                className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-semibold text-xs shadow-xs transition-all cursor-pointer"
+                className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-semibold text-xs cursor-pointer"
               >
-                Browse Cars
+                Back to car
               </button>
             </div>
           </div>
         ) : (
           <div
-            className={`mb-6 p-3.5 sm:p-4 rounded-2xl flex items-center justify-between text-xs transition-all border shadow-xs ${
+            className={`mb-6 px-4 py-3 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs border ${
               remainingSeconds <= 60
-                ? "bg-rose-50 border-rose-300 text-rose-900 animate-pulse"
+                ? "bg-rose-50 border-rose-200 text-rose-900"
                 : remainingSeconds <= 180
-                ? "bg-amber-50 border-amber-300 text-amber-900"
-                : "bg-blue-50/80 border-blue-200/80 text-blue-900"
+                ? "bg-amber-50 border-amber-200 text-amber-900"
+                : "bg-slate-100 border-slate-200 text-slate-800"
             }`}
           >
-            <div className="flex items-center gap-2.5">
-              <Timer
-                className={`w-4 h-4 shrink-0 ${
-                  remainingSeconds <= 60
-                    ? "text-rose-600"
-                    : remainingSeconds <= 180
-                    ? "text-amber-600"
-                    : "text-blue-600"
-                }`}
-              />
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium">
-                  {remainingSeconds <= 60
-                    ? "Expiring soon:"
-                    : remainingSeconds <= 180
-                    ? "Hold ends in:"
-                    : "Car reserved for you:"}
-                </span>
-                <strong
-                  className={`font-mono text-sm tracking-wide font-extrabold ${
-                    remainingSeconds <= 60
-                      ? "text-rose-700"
-                      : remainingSeconds <= 180
-                      ? "text-amber-700"
-                      : "text-blue-700"
-                  }`}
-                >
-                  {formatSeconds(remainingSeconds)}
-                </strong>
-              </div>
+            <div className="flex items-center gap-2">
+              <Timer className="w-4 h-4 shrink-0" />
+              <span>Hold time remaining:</span>
+              <strong className="font-mono text-sm font-bold">{formatSeconds(remainingSeconds)}</strong>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleReReserve}
                 disabled={renewing || cancelling}
-                className="px-3 py-1.5 bg-white text-slate-800 rounded-xl font-bold text-xs shadow-2xs hover:bg-slate-50 border border-slate-200 hover:border-blue-400 cursor-pointer transition-all flex items-center gap-1 shrink-0 disabled:opacity-50"
-                title="Add 15 minutes to your reservation hold"
+                className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg font-semibold border border-slate-200 cursor-pointer flex items-center gap-1 disabled:opacity-50"
               >
-                <span>+15 mins</span>
+                <RotateCcw className="w-3 h-3" />
+                <span>+15m</span>
               </button>
               <button
                 type="button"
                 onClick={handleCancelBooking}
                 disabled={cancelling || renewing}
-                className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 rounded-xl font-bold text-xs shadow-2xs border border-rose-200 hover:border-rose-300 cursor-pointer transition-all flex items-center gap-1 shrink-0 disabled:opacity-50"
-                title="Cancel reservation hold and release car"
+                className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 rounded-lg font-semibold border border-slate-200 hover:border-rose-200 cursor-pointer disabled:opacity-50"
               >
-                <span>{cancelling ? "Releasing…" : "Cancel Hold"}</span>
+                {cancelling ? "Releasing…" : "Cancel hold"}
               </button>
             </div>
           </div>
         )}
 
-        {/* Page Title */}
-        <div className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Confirm Booking &amp; Verify Driver
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Review your trip details and verify your identity before proceeding to Baray secure payment.
+        {/* Title */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Checkout</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Enter driver details to complete your booking
           </p>
         </div>
 
         {/* 2-Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_390px] gap-8 items-start">
-          {/* Left Column: Unified Section */}
-          <div className="space-y-6">
-            {/* ========================================================= */}
-            {/* CARD 1: CONFIRM BOOKING & TRIP DETAILS */}
-            {/* ========================================================= */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-xs">
-                    01
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                      Trip &amp; Car Details
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Confirmed from your reservation
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                  {totalDays} days
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 items-start">
+          {/* Left: Driver Details Form */}
+          <div
+            id="driver-info"
+            className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-6"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Driver details</h2>
+                <p className="text-xs text-slate-500">Must match your ID at pick-up</p>
+              </div>
+              {isDriverComplete && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Complete
                 </span>
-              </div>
+              )}
+            </div>
 
-              {/* Car Card Preview */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="w-28 h-20 sm:w-32 sm:h-22 rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200 shadow-2xs aspect-[16/10]">
-                  <img
-                    src={getCarPhotoUrl(activeCar?.photos?.[0])}
-                    alt={carTitle}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-slate-900 truncate">
-                      {carTitle}
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
-                      ${dailyRate}/day
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {activeCar?.category || "Sedan"} · {activeCar?.transmission || "Automatic"} · {activeCar?.seats || 5} seats
-                  </p>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-600 mt-2 font-medium">
-                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                    <span>
-                      {start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} –{" "}
-                      {end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Handover & Delivery Options */}
-              <div className="space-y-3">
-                <label className="block text-xs font-bold text-slate-700">
-                  Pickup &amp; Return Place
+            {/* Personal Info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Full name
+                  <RequiredStar />
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div
-                    onClick={() => setDeliveryOption("branch")}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                      deliveryOption === "branch"
-                        ? "border-blue-600 bg-blue-50/50 ring-1 ring-blue-600 shadow-xs"
-                        : "border-slate-200 hover:border-slate-300 bg-white"
-                    }`}
-                  >
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                      Pick up at station (Free)
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
-                      Collect key at airport or city station
-                    </div>
-                  </div>
-
-                  <div
-                    onClick={() => setDeliveryOption("hotel")}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                      deliveryOption === "hotel"
-                        ? "border-blue-600 bg-blue-50/50 ring-1 ring-blue-600 shadow-xs"
-                        : "border-slate-200 hover:border-slate-300 bg-white"
-                    }`}
-                  >
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <Car className="w-3.5 h-3.5 text-blue-600" />
-                      Deliver to me
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
-                      We bring the car to your hotel or home
-                    </div>
-                  </div>
-                </div>
-
-                {deliveryOption === "branch" ? (
-                  <div>
-                    <select
-                      value={pickupBranch}
-                      onChange={(e) => setPickupBranch(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    >
-                      <option value="Phnom Penh Airport Terminal Depot">
-                        Phnom Penh International Airport Depot (Arrivals Counter 4)
-                      </option>
-                      <option value="Phnom Penh Downtown Central BKK1">
-                        Phnom Penh Downtown Station (BKK1 St 51)
-                      </option>
-                      <option value="Siem Reap Angkor International Airport">
-                        Siem Reap Angkor Airport Station (SAI)
-                      </option>
-                      <option value="Sihanoukville Coastal Terminal">
-                        Sihanoukville Port &amp; Coastal Station
-                      </option>
-                    </select>
-                  </div>
-                ) : (
-                  <div>
-                    <input
-                      type="text"
-                      value={deliveryAddress}
-                      onChange={(e) => setDeliveryAddress(e.target.value)}
-                      placeholder="e.g. Hotel name, street address, or landmark"
-                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                    />
-                  </div>
-                )}
+                <input
+                  type="text"
+                  value={driverName}
+                  onChange={(e) => setDriverName(e.target.value)}
+                  placeholder="Sokha Kheang"
+                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border bg-white focus:outline-hidden ${
+                    attemptedSubmit && !driverName.trim()
+                      ? "border-rose-400 focus:border-rose-500"
+                      : "border-slate-200 focus:border-blue-600"
+                  }`}
+                  required
+                />
               </div>
 
-              {/* Time Slots & Flight */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="flex items-center gap-1 text-xs font-bold text-slate-700 mb-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    Pickup Time
-                  </label>
-                  <select
-                    value={pickupTime}
-                    onChange={(e) => setPickupTime(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                  >
-                    {["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "03:00 PM", "05:00 PM"].map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="flex items-center gap-1 text-xs font-bold text-slate-700 mb-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    Return Time
-                  </label>
-                  <select
-                    value={returnTime}
-                    onChange={(e) => setReturnTime(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                  >
-                    {["10:00 AM", "12:00 PM", "02:00 PM", "04:00 PM", "06:00 PM", "08:00 PM", "10:00 PM"].map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="flex items-center gap-1 text-xs font-bold text-slate-700 mb-1.5">
-                    <Plane className="w-3.5 h-3.5 text-slate-400" />
-                    Flight No. (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={flightNumber}
-                    onChange={(e) => setFlightNumber(e.target.value)}
-                    placeholder="e.g. K6 102"
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-300 uppercase font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-                  />
-                </div>
-              </div>
-
-              {/* Included Benefits & Features */}
-              <div className="pt-2 border-t border-slate-100 space-y-2">
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Included with this Rental
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Phone number
+                  <RequiredStar />
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5 text-xs text-slate-700">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <div>
-                      <strong className="text-slate-900 block text-xs">Insurance Protection Included</strong>
-                      <span className="text-[11px] text-slate-500">Third-party liability &amp; collision coverage</span>
-                    </div>
-                  </div>
+                <input
+                  type="tel"
+                  value={driverPhone}
+                  onChange={(e) => setDriverPhone(e.target.value)}
+                  placeholder="+855 12 345 678"
+                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border bg-white focus:outline-hidden ${
+                    attemptedSubmit && !driverPhone.trim()
+                      ? "border-rose-400 focus:border-rose-500"
+                      : "border-slate-200 focus:border-blue-600"
+                  }`}
+                  required
+                />
+              </div>
 
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5 text-xs text-slate-700">
-                    <Gauge className="w-4 h-4 text-blue-600 shrink-0" />
-                    <div>
-                      <strong className="text-slate-900 block text-xs">250 km / day Included</strong>
-                      <span className="text-[11px] text-slate-500">Standard distance allowance</span>
-                    </div>
-                  </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Email
+                  <RequiredStar />
+                </label>
+                <input
+                  type="email"
+                  value={driverEmail}
+                  onChange={(e) => setDriverEmail(e.target.value)}
+                  placeholder="driver@example.com"
+                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border bg-white focus:outline-hidden ${
+                    attemptedSubmit && !driverEmail.trim()
+                      ? "border-rose-400 focus:border-rose-500"
+                      : "border-slate-200 focus:border-blue-600"
+                  }`}
+                  required
+                />
+              </div>
 
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5 text-xs text-slate-700">
-                    <Car className="w-4 h-4 text-indigo-600 shrink-0" />
-                    <div>
-                      <strong className="text-slate-900 block text-xs">24/7 Roadside Assist</strong>
-                      <span className="text-[11px] text-slate-500">Emergency support across Cambodia</span>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5 text-xs text-slate-700">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <div>
-                      <strong className="text-slate-900 block text-xs">Free Cancellation</strong>
-                      <span className="text-[11px] text-slate-500">Up to 24h before trip start</span>
-                    </div>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Date of birth
+                  <RequiredStar />
+                </label>
+                <input
+                  type="date"
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border bg-white focus:outline-hidden text-slate-700 ${
+                    attemptedSubmit && !dateOfBirth.trim()
+                      ? "border-rose-400 focus:border-rose-500"
+                      : "border-slate-200 focus:border-blue-600"
+                  }`}
+                  required
+                />
               </div>
             </div>
 
-            {/* ========================================================= */}
-            {/* CARD 2: DRIVER IDENTITY & LICENSE VERIFICATION */}
-            {/* ========================================================= */}
-            <div
-              id="driver-info"
-              className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-6"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-xs">
-                    02
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                      Driver Information &amp; Verification
-                      {isDriverComplete && (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      )}
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Needed for insurance policy and car pickup handover
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                  Required
-                </span>
-              </div>
-
-              {/* Form Fields */}
+            {/* Identification */}
+            <div className="pt-5 border-t border-slate-100 space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Identification
+              </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-1.5">
-                    <User className="w-3.5 h-3.5 text-slate-400" />
-                    Full Name (on license) *
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Document type
+                    <RequiredStar />
                   </label>
-                  <input
-                    type="text"
-                    value={driverName}
-                    onChange={(e) => setDriverName(e.target.value)}
-                    placeholder="e.g. Sokha Kheang"
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
+                  <select
+                    value={idType}
+                    onChange={(e) => setIdType(e.target.value)}
+                    className={`w-full text-xs px-3.5 py-2.5 rounded-xl border bg-white focus:outline-hidden cursor-pointer ${
+                      attemptedSubmit && !idType.trim()
+                        ? "border-rose-400 focus:border-rose-500"
+                        : "border-slate-200 focus:border-blue-600"
+                    }`}
                     required
-                  />
+                  >
+                    <option value="Driver's License">Driver&apos;s License</option>
+                    <option value="International Driving Permit">International Driving Permit</option>
+                    <option value="National ID Card">National ID Card</option>
+                    <option value="Passport">Passport</option>
+                  </select>
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-1.5">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    Phone Number *
-                  </label>
-                  <input
-                    type="tel"
-                    value={driverPhone}
-                    onChange={(e) => setDriverPhone(e.target.value)}
-                    placeholder="+855 12 345 678"
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-1.5">
-                    <Mail className="w-3.5 h-3.5 text-slate-400" />
-                    Email *
-                  </label>
-                  <input
-                    type="email"
-                    value={driverEmail}
-                    onChange={(e) => setDriverEmail(e.target.value)}
-                    placeholder="driver@example.com"
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-all"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-1.5">
-                    <FileText className="w-3.5 h-3.5 text-slate-400" />
-                    Driver&apos;s License No.
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Document number
+                    <RequiredStar />
                   </label>
                   <input
                     type="text"
                     value={driverLicenseNumber}
                     onChange={(e) => setDriverLicenseNumber(e.target.value)}
                     placeholder="KH-DL-9874218"
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 font-mono transition-all"
+                    className={`w-full text-xs px-3.5 py-2.5 rounded-xl border bg-white focus:outline-hidden font-mono ${
+                      attemptedSubmit && !driverLicenseNumber.trim()
+                        ? "border-rose-400 focus:border-rose-500"
+                        : "border-slate-200 focus:border-blue-600"
+                    }`}
+                    required
                   />
                 </div>
               </div>
+            </div>
 
-              {/* License Photos Upload */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Driver&apos;s License Photos
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  {/* Front Upload */}
+            {/* Required Document Photos */}
+            <div id="id-photos-section" className="pt-5 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  ID photos
+                  <RequiredStar />
+                </h3>
+                <span className="text-[11px] text-slate-400">JPG, PNG, WebP</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {licenseFrontUploaded ? (
+                  <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 text-center">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+                    <div className="text-xs font-semibold text-emerald-900">Front attached</div>
+                    <div className="text-[11px] text-emerald-700 truncate font-mono mt-0.5">
+                      {frontFileName || "front.jpg"}
+                    </div>
+                    <div className="mt-2 flex items-center justify-center gap-3 text-[11px] font-semibold">
+                      <label className="text-blue-600 hover:underline cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleFileUpload("front", e.target.files[0])}
+                        />
+                        Replace
+                      </label>
+                      <button
+                        type="button"
+                        onClick={(e) => handleRemovePhoto("front", e)}
+                        className="text-rose-600 hover:underline cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <label
-                    className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all block ${
-                      licenseFrontUploaded
-                        ? "border-emerald-500 bg-emerald-50/50"
-                        : "border-slate-300 hover:border-blue-500 bg-slate-50"
+                    className={`border border-dashed rounded-xl p-4 text-center cursor-pointer block ${
+                      attemptedSubmit && !licenseFrontUploaded
+                        ? "border-rose-400 bg-rose-50/40 hover:border-rose-500"
+                        : "border-slate-300 hover:border-blue-500 bg-slate-50/50"
                     }`}
                   >
                     <input
@@ -938,31 +1189,46 @@ function CheckoutContent() {
                       className="hidden"
                       onChange={(e) => handleFileUpload("front", e.target.files[0])}
                     />
-                    {licenseFrontUploaded ? (
-                      <div className="space-y-1">
-                        <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto" />
-                        <div className="text-xs font-bold text-emerald-800">
-                          Front photo attached
-                        </div>
-                        <div className="text-[10px] text-emerald-600 truncate max-w-[180px] mx-auto">
-                          {frontFileName || "Verified"}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-1" />
-                        <div className="text-xs font-bold text-slate-800">Front of License</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">Tap or upload photo</div>
-                      </div>
-                    )}
+                    <UploadCloud className="w-5 h-5 text-slate-400 mx-auto mb-1.5" />
+                    <div className="text-xs font-semibold text-slate-700">
+                      Front of ID
+                      <RequiredStar />
+                    </div>
                   </label>
+                )}
 
-                  {/* Back Upload */}
+                {licenseBackUploaded ? (
+                  <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 text-center">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+                    <div className="text-xs font-semibold text-emerald-900">Back attached</div>
+                    <div className="text-[11px] text-emerald-700 truncate font-mono mt-0.5">
+                      {backFileName || "back.jpg"}
+                    </div>
+                    <div className="mt-2 flex items-center justify-center gap-3 text-[11px] font-semibold">
+                      <label className="text-blue-600 hover:underline cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleFileUpload("back", e.target.files[0])}
+                        />
+                        Replace
+                      </label>
+                      <button
+                        type="button"
+                        onClick={(e) => handleRemovePhoto("back", e)}
+                        className="text-rose-600 hover:underline cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <label
-                    className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all block ${
-                      licenseBackUploaded
-                        ? "border-emerald-500 bg-emerald-50/50"
-                        : "border-slate-300 hover:border-blue-500 bg-slate-50"
+                    className={`border border-dashed rounded-xl p-4 text-center cursor-pointer block ${
+                      attemptedSubmit && !licenseBackUploaded
+                        ? "border-rose-400 bg-rose-50/40 hover:border-rose-500"
+                        : "border-slate-300 hover:border-blue-500 bg-slate-50/50"
                     }`}
                   >
                     <input
@@ -971,149 +1237,26 @@ function CheckoutContent() {
                       className="hidden"
                       onChange={(e) => handleFileUpload("back", e.target.files[0])}
                     />
-                    {licenseBackUploaded ? (
-                      <div className="space-y-1">
-                        <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto" />
-                        <div className="text-xs font-bold text-emerald-800">
-                          Back photo attached
-                        </div>
-                        <div className="text-[10px] text-emerald-600 truncate max-w-[180px] mx-auto">
-                          {backFileName || "Verified"}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-1" />
-                        <div className="text-xs font-bold text-slate-800">Back of License</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">Tap or upload photo</div>
-                      </div>
-                    )}
+                    <UploadCloud className="w-5 h-5 text-slate-400 mx-auto mb-1.5" />
+                    <div className="text-xs font-semibold text-slate-700">
+                      Back of ID
+                      <RequiredStar />
+                    </div>
                   </label>
-                </div>
-              </div>
-            </div>
-
-            {/* ========================================================= */}
-            {/* CARD 3: PAYMENT & BARAY GATEWAY */}
-            {/* ========================================================= */}
-            <div
-              id="payment-section"
-              className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-6"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-xs">
-                    03
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                      Payment &amp; Guarantee
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Direct connection to Baray payment gateway
-                    </p>
-                  </div>
-                </div>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                  Safe &amp; Secure
-                </span>
-              </div>
-
-              {/* Baray Payment Gateway Notice */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs flex items-start gap-3">
-                <Lock className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <strong className="text-slate-900 block text-xs">Secured by Baray Payment Gateway</strong>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    When you click pay, you will be redirected to the official Baray gateway to choose your payment method (KHQR, Credit/Debit Card, or Bank Transfer).
-                  </p>
-                </div>
-              </div>
-
-              {/* Security Deposit Notice */}
-              <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
-                <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  <strong>$100 Security Deposit:</strong> Held during your trip and returned right after you return the car.
-                </span>
-              </div>
-
-              {/* Terms Checkbox */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-                <label className="flex items-start gap-2.5 text-xs text-slate-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={acceptedTerms}
-                    onChange={(e) => setAcceptedTerms(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                  <span>
-                    I agree to the rental terms, car photo inspection, and 24h free cancellation.
-                  </span>
-                </label>
-              </div>
-
-              {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              {/* Main Pay CTA */}
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={handlePay}
-                  disabled={paying || isExpired}
-                  className="w-full py-4 px-6 bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white font-extrabold text-sm rounded-xl shadow-lg hover:shadow-xl transition-all cursor-pointer disabled:opacity-50 active:scale-98 flex items-center justify-center gap-2"
-                >
-                  {isExpired ? (
-                    <>
-                      <Timer className="w-4 h-4" />
-                      Hold Expired - Please Re-reserve
-                    </>
-                  ) : paying ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spinner" />
-                      Connecting to Baray…
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      Pay ${totalAmount.toFixed(2)} with Baray
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Cancel Reservation & Release Car */}
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={handleCancelBooking}
-                  disabled={cancelling || paying}
-                  className="text-xs font-semibold text-slate-400 hover:text-rose-600 transition-colors underline cursor-pointer disabled:opacity-50"
-                >
-                  {cancelling ? "Releasing car hold…" : "Cancel reservation & release car"}
-                </button>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Right Column: Sticky Live Booking Summary */}
-          <div className="sticky top-24 bg-white border border-slate-200 rounded-3xl p-6 shadow-xl space-y-5">
-            <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center justify-between">
-              <span>Booking Summary</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 uppercase">
-                Price Details
-              </span>
+          {/* Right: Sticky Summary */}
+          <div className="sticky top-24 bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-5">
+            <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3">
+              Summary
             </h3>
 
             {/* Car Preview */}
             <div className="flex items-center gap-3">
-              <div className="w-20 h-16 rounded-xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200 shadow-2xs aspect-[16/10]">
+              <div className="w-20 h-14 rounded-xl overflow-hidden bg-slate-100 shrink-0">
                 <img
                   src={getCarPhotoUrl(activeCar?.photos?.[0])}
                   alt={carTitle}
@@ -1121,80 +1264,189 @@ function CheckoutContent() {
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-bold text-sm text-slate-900 truncate">
-                  {carTitle}
-                </h4>
-                <p className="text-[11px] text-slate-500">
+                <h4 className="font-bold text-sm text-slate-900 truncate">{carTitle}</h4>
+                <p className="text-xs text-slate-500 truncate">
                   {activeCar?.category || "Sedan"} · {activeCar?.transmission || "Automatic"}
                 </p>
-                <span className="inline-block px-2 py-0.5 mt-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold">
-                  🟢 Reserved for you
-                </span>
               </div>
             </div>
 
-            {/* Date & Duration */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs text-slate-700 border border-slate-100">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Duration:</span>
-                <span className="font-bold text-blue-700">{totalDays} days</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Dates:</span>
-                <span className="font-semibold">
+            {/* Dates & Quick Adjust */}
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/70 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Dates</span>
+                <span className="font-semibold text-slate-900">
                   {start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} –{" "}
                   {end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  {" "}({totalDays}d)
                 </span>
               </div>
+
+              {booking?._id && (
+                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">
+                    {extending ? "Updating…" : "Adjust days"}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDecreaseFromCheckout(1)}
+                      disabled={extending || totalDays <= 1}
+                      className="px-2 py-0.5 rounded bg-white border border-slate-200 text-rose-600 font-semibold text-[11px] cursor-pointer disabled:opacity-30"
+                    >
+                      -1d
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExtendFromCheckout(1)}
+                      disabled={extending}
+                      className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:border-blue-500 font-semibold text-[11px] cursor-pointer disabled:opacity-50"
+                    >
+                      +1d
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExtendFromCheckout(2)}
+                      disabled={extending}
+                      className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700 hover:border-blue-500 font-semibold text-[11px] cursor-pointer disabled:opacity-50"
+                    >
+                      +2d
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Honest Price Breakdown matching Database */}
-            <div className="space-y-2 text-xs text-slate-600 pt-2 border-t border-slate-100">
+            {/* Price Breakdown */}
+            <div className="space-y-2 text-xs text-slate-600">
               <div className="flex justify-between">
-                <span>Car rent (${dailyRate}/day × {totalDays} days)</span>
+                <span>${dailyRate}/day × {totalDays}d</span>
                 <span className="font-semibold text-slate-900">${totalAmount.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-emerald-700">
-                <span>Insurance Protection</span>
-                <span className="font-semibold">Included</span>
+              <div className="flex justify-between">
+                <span>Insurance &amp; 250 km/day</span>
+                <span className="font-medium text-emerald-700">Included</span>
               </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Mileage (250 km/day)</span>
-                <span className="font-semibold text-slate-800">Included</span>
+              <div className="flex justify-between">
+                <span>Refundable deposit</span>
+                <span className="font-medium text-slate-800">$100.00</span>
               </div>
-
               <div className="h-px bg-slate-200 my-2" />
-              <div className="flex justify-between items-center text-sm font-bold text-slate-900">
-                <span>Total to Pay</span>
-                <span className="text-lg text-blue-700 font-black">${totalAmount.toFixed(2)}</span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500">
-                <span>Security deposit: $100 (returned after trip)</span>
+              <div className="flex justify-between items-baseline text-slate-900">
+                <span className="font-bold text-sm">Total due</span>
+                <span className="text-xl font-bold">${totalAmount.toFixed(2)}</span>
               </div>
             </div>
 
-            {/* Quick Submit CTA on sidebar */}
+            {/* Terms */}
+            <label
+              id="payment-section"
+              className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/70 text-xs text-slate-700 cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded text-blue-600 cursor-pointer accent-blue-600"
+              />
+              <span className="text-[11px] leading-relaxed">
+                I confirm my details and agree to the rental terms and 24h free cancellation.
+              </span>
+            </label>
+
+            {error && (
+              <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Pay CTA */}
             <button
               type="button"
               onClick={handlePay}
               disabled={paying || isExpired}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-xl transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isExpired ? (
+                <span>Hold expired</span>
+              ) : paying ? (
                 <>
-                  <Timer className="w-3.5 h-3.5" />
-                  <span>Hold Expired</span>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spinner" />
+                  <span>Connecting…</span>
                 </>
               ) : (
                 <>
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Pay ${totalAmount.toFixed(2)} with Baray</span>
+                  <Lock className="w-4 h-4" />
+                  <span>Pay ${totalAmount.toFixed(2)}</span>
+                  <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
+
+            <div className="text-center space-y-2">
+              <p className="text-[11px] text-slate-400">
+                KHQR (Bakong, ABA, Wing) · Visa · Mastercard
+              </p>
+              <button
+                type="button"
+                onClick={handleCancelBooking}
+                disabled={cancelling || paying}
+                className="text-xs font-medium text-slate-400 hover:text-rose-600 cursor-pointer disabled:opacity-50"
+              >
+                {cancelling ? "Releasing…" : "Cancel reservation"}
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Payment Resume Modal */}
+        {showResumeModal && !isExpired && activeCar && (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="payment-resume-title"
+              className="relative w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl border border-slate-200"
+            >
+              <button
+                type="button"
+                onClick={() => setShowResumeModal(false)}
+                aria-label="Close"
+                className="absolute top-3.5 right-3.5 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl overflow-hidden bg-slate-100">
+                <img
+                  src={getCarPhotoUrl(activeCar?.photos?.[0] || activeCar?.photo)}
+                  alt={carTitle}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+
+              <h2 id="payment-resume-title" className="text-lg font-bold text-slate-900">
+                Payment incomplete
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                {carTitle} · Hold expires in <span className="font-mono font-semibold text-slate-900">{formatSeconds(remainingSeconds)}</span>
+              </p>
+
+              <div className="mt-5">
+                <button
+                  type="button"
+                  onClick={handleContinuePayment}
+                  disabled={paying || isExpired}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-3 text-xs font-semibold text-white cursor-pointer disabled:opacity-60"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>{paying ? "Connecting…" : `Continue payment ($${totalAmount.toFixed(2)})`}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </>
   );

@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { Heart, ChevronLeft, ChevronRight, Star, MapPin } from "lucide-react";
 import { getCarPhotoUrl } from "@/lib/api";
 import { useBasket } from "@/context/BasketContext";
+import { useSearch } from "@/context/SearchContext";
 
 const SAMPLE_CAR_PHOTOS = [
   "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80",
@@ -13,12 +15,13 @@ const SAMPLE_CAR_PHOTOS = [
 ];
 
 export default function CarCard({ car, index = 0 }) {
-  const { toggleWishlist, isWishlisted, addToBasket, toggleCompare, isInCompare } = useBasket();
+  const { toggleWishlist, isWishlisted } = useBasket();
+  const { getBookingUrl } = useSearch();
   const [photoIndex, setPhotoIndex] = useState(0);
 
   const carId = car._id || car.id;
+  const bookingUrl = getBookingUrl ? getBookingUrl(carId) : `/booking?carId=${carId}`;
   const wishlisted = isWishlisted(carId);
-  const compared = isInCompare(carId);
 
   const photos =
     car?.photos && car.photos.length > 0
@@ -30,16 +33,12 @@ export default function CarCard({ car, index = 0 }) {
   const brand = car.brand || car.make || "Vehicle";
   const model = car.modelName || car.model || "Model";
   const city = car.location?.city || car.location?.address || "Phnom Penh";
-  const category = car.category || "Sedan";
   const transmission = car.transmission || "Automatic";
   const seats = car.seats || 5;
-  const fuel = car.fuelType || "Gasoline";
   const price = car.pricePerDay || 35;
-  const rating = 4.85 + ((index * 3) % 15) / 100;
-  const tripCount = 35 + ((index * 17) % 150);
 
-  // Status tag logic
-  const isScarce = index % 3 === 0;
+  const rating = car.averageRating || car.rating || null;
+  const reviewCount = car.reviewCount || car.totalReviews || null;
 
   const handleNextPhoto = (e) => {
     e.preventDefault();
@@ -53,32 +52,21 @@ export default function CarCard({ car, index = 0 }) {
     setPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
   };
 
-  const handleQuickAdd = (e) => {
+  const handleWishlist = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Default 2 days starting tomorrow
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const returnDate = new Date();
-    returnDate.setDate(returnDate.getDate() + 3);
-
-    addToBasket({
-      car,
-      startDate: tomorrow.toISOString(),
-      endDate: returnDate.toISOString(),
-      addOns: [],
-    });
+    toggleWishlist(car);
   };
 
   return (
-    <div className="flex flex-col group relative bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-xl hover:border-slate-300 transition-all duration-300 p-2.5">
-      {/* Photo carousel container */}
-      <div className="relative w-full aspect-[20/15] rounded-xl overflow-hidden bg-slate-100">
-        <Link href={`/booking?carId=${carId}`} className="block w-full h-full">
+    <div className="flex flex-col group bg-white rounded-2xl border border-slate-200/90 hover:border-slate-300 hover:shadow-md transition-all duration-200 overflow-hidden">
+      {/* Photo Container */}
+      <div className="relative w-full aspect-[16/10] bg-slate-100 overflow-hidden">
+        <Link href={bookingUrl} className="block w-full h-full">
           <img
             src={currentPhoto}
             alt={`${brand} ${model}`}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             loading="lazy"
             onError={(e) => {
               e.target.src = SAMPLE_CAR_PHOTOS[index % SAMPLE_CAR_PHOTOS.length];
@@ -86,134 +74,113 @@ export default function CarCard({ car, index = 0 }) {
           />
         </Link>
 
-        {/* Carousel Prev/Next Buttons */}
+        {/* Tier Badge (only for Luxury or Budget) */}
+        {price >= 65 ? (
+          <span className="absolute top-2.5 left-2.5 z-10 bg-slate-900/85 backdrop-blur-xs text-white text-[10px] font-semibold px-2 py-0.5 rounded-md">
+            Luxury
+          </span>
+        ) : price <= 30 ? (
+          <span className="absolute top-2.5 left-2.5 z-10 bg-white/95 backdrop-blur-xs text-emerald-700 text-[10px] font-semibold px-2 py-0.5 rounded-md shadow-2xs">
+            Great value
+          </span>
+        ) : null}
+
+        {/* Wishlist Toggle */}
+        <button
+          type="button"
+          onClick={handleWishlist}
+          aria-label={wishlisted ? "Remove from saved" : "Save car"}
+          className="absolute top-2.5 right-2.5 z-10 w-7 h-7 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow-xs transition-transform hover:scale-105 cursor-pointer"
+        >
+          <Heart
+            className={`w-3.5 h-3.5 ${
+              wishlisted ? "fill-rose-500 text-rose-500" : "text-slate-700"
+            }`}
+          />
+        </button>
+
+        {/* Carousel Prev/Next */}
         {photos.length > 1 && (
           <div className="absolute inset-y-0 inset-x-2 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <button
+              type="button"
               onClick={handlePrevPhoto}
-              className="w-7 h-7 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center text-xs shadow-md pointer-events-auto cursor-pointer transition-transform hover:scale-110"
+              className="w-6 h-6 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center shadow-sm pointer-events-auto cursor-pointer"
               aria-label="Previous photo"
             >
-              ‹
+              <ChevronLeft className="w-3.5 h-3.5" />
             </button>
             <button
+              type="button"
               onClick={handleNextPhoto}
-              className="w-7 h-7 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center text-xs shadow-md pointer-events-auto cursor-pointer transition-transform hover:scale-110"
+              className="w-6 h-6 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center shadow-sm pointer-events-auto cursor-pointer"
               aria-label="Next photo"
             >
-              ›
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* Badges */}
-        <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-1 items-start">
-          {price >= 65 ? (
-            <span className="bg-slate-900/90 backdrop-blur-xs text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-xs border border-white/10">
-              👑 Luxury
-            </span>
-          ) : price <= 30 ? (
-            <span className="bg-emerald-600/95 backdrop-blur-xs text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-xs">
-              🏷️ Good Price
-            </span>
-          ) : (
-            <span className="bg-white/95 backdrop-blur-xs text-slate-900 text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-xs border border-slate-200">
-              ★ Top Pick
-            </span>
-          )}
-        </div>
-
-        {/* Top Right Actions: Compare & Wishlist */}
-        <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
-          <button
-            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs transition-transform hover:scale-110 cursor-pointer shadow-sm ${
-              compared ? "bg-indigo-600 text-white" : "bg-white/90 hover:bg-white text-slate-700"
-            }`}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              toggleCompare(car);
-            }}
-            title={compared ? "Comparing" : "Compare"}
-          >
-            ⚖️
-          </button>
-
-          <button
-            className="w-7 h-7 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-sm cursor-pointer transition-transform hover:scale-110 shadow-sm"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              toggleWishlist(car);
-            }}
-            aria-label="Wishlist"
-            title="Save"
-          >
-            {wishlisted ? "❤️" : "🤍"}
-          </button>
-        </div>
-
-        {/* Status tag on photo bottom */}
-        <div className="absolute bottom-2.5 left-2.5 z-10">
-          {isScarce ? (
-            <span className="bg-amber-500/95 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs">
-              🔥 Almost full!
-            </span>
-          ) : (
-            <span className="bg-emerald-600/90 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-              Open
-            </span>
-          )}
-        </div>
+        {/* Photo Counter */}
+        {photos.length > 1 && (
+          <span className="absolute bottom-2 right-2 z-10 text-[10px] font-medium bg-slate-900/60 text-white px-1.5 py-0.5 rounded">
+            {photoIndex + 1}/{photos.length}
+          </span>
+        )}
       </div>
 
-      {/* Details info */}
-      <div className="p-2 flex flex-col flex-1 justify-between">
-        <Link href={`/booking?carId=${carId}`} className="no-underline text-inherit block">
-          <div className="flex items-start justify-between gap-1 mb-1">
-            <h3 className="text-sm font-bold text-slate-900 leading-tight group-hover:text-blue-700 transition-colors truncate">
-              {brand} {model} <span className="text-slate-400 font-normal text-xs">({car.year || 2024})</span>
+      {/* Card Body */}
+      <div className="p-3.5 flex flex-col flex-1 justify-between gap-2.5">
+        <Link href={bookingUrl} className="no-underline text-inherit block">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-sm font-bold text-slate-900 leading-snug group-hover:text-blue-600 transition-colors truncate">
+              {brand} {model}
+              <span className="text-slate-400 font-normal ml-1 text-xs">{car.year || 2024}</span>
             </h3>
-            <div className="flex items-center gap-1 text-xs font-bold text-slate-800 shrink-0">
-              <span className="text-amber-500">★</span>
-              <span>{rating.toFixed(2)}</span>
-            </div>
+            {rating !== null ? (
+              <div className="flex items-center gap-0.5 text-xs font-semibold text-slate-800 shrink-0">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                <span>{Number(rating).toFixed(1)}</span>
+              </div>
+            ) : (
+              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
+                New
+              </span>
+            )}
           </div>
 
-          <div className="text-[11px] text-slate-500 mb-2 truncate">
-            {transmission} · {seats} seats · {fuel} · 📍 {city}
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1 truncate">
+            <span>{transmission}</span>
+            <span>·</span>
+            <span>{seats} seats</span>
+            <span>·</span>
+            <span className="inline-flex items-center gap-0.5 truncate">
+              <MapPin className="w-3 h-3 shrink-0" />
+              {city}
+            </span>
           </div>
         </Link>
 
-        {/* Pricing line & Quick Add action */}
-        <div className="pt-2 border-t border-slate-100 flex items-center justify-between mt-auto">
+        {/* Price & Book Row */}
+        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
           <div>
             <div className="flex items-baseline gap-1">
-              <span className="font-extrabold text-slate-900 text-base">${price}</span>
-              <span className="font-medium text-slate-500 text-xs">/ day</span>
+              <span className="font-bold text-slate-900 text-base">${price}</span>
+              <span className="text-slate-500 text-xs">/ day</span>
             </div>
-            <div className="text-[10px] text-slate-400">
-              ★ {rating.toFixed(1)} ({tripCount} trips)
-            </div>
+            {rating !== null && reviewCount !== null && (
+              <div className="text-[11px] text-slate-400">
+                {reviewCount} {reviewCount === 1 ? "trip" : "trips"}
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleQuickAdd}
-              className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
-              title="Add to basket"
-            >
-              <span>+</span>
-              <span>Add</span>
-            </button>
-            <Link
-              href={`/booking?carId=${carId}`}
-              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-blue-700 text-white text-[11px] font-bold transition-all no-underline"
-            >
-              Book
-            </Link>
-          </div>
+          <Link
+            href={bookingUrl}
+            className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-blue-600 text-white text-xs font-semibold transition-colors no-underline"
+          >
+            Book
+          </Link>
         </div>
       </div>
     </div>

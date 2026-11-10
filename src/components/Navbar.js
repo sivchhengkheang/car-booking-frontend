@@ -1,14 +1,28 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Loader2, ShieldCheck, LogIn } from "lucide-react";
+import {
+  Search,
+  Loader2,
+  LogIn,
+  ShoppingBag,
+  MapPin,
+  Heart,
+  User,
+  Calendar,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  LayoutDashboard,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getCars } from "@/lib/api";
+import { getCars, getMe } from "@/lib/api";
 import { redirectToKID, session } from "@/lib/kid-auth";
 import { useBasket } from "@/context/BasketContext";
-import { ShoppingCartMinus } from "lucide-react";
+import { useSearch } from "@/context/SearchContext";
+import CalendarMonth from "@/components/CalendarMonth";
 
-const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
@@ -17,18 +31,24 @@ const CITIES = ["All Locations", "Phnom Penh", "Siem Reap", "Sihanoukville", "Ba
 const VEHICLE_TYPES = ["All Types", "Sedan", "SUV", "Luxury", "Electric", "Van", "Truck"];
 
 const VEHICLE_META = {
-  "All Types": { icon: "✨", label: "All Cars" },
-  "Sedan": { icon: "🚗", label: "Sedans" },
-  "SUV": { icon: "🚙", label: "SUV & 4x4" },
-  "Luxury": { icon: "👑", label: "Luxury" },
-  "Electric": { icon: "⚡", label: "Electric" },
-  "Van": { icon: "🚐", label: "Van" },
-  "Truck": { icon: "🛻", label: "Pickup" },
+  "All Types": { label: "All Cars" },
+  "Sedan": { label: "Sedans" },
+  "SUV": { label: "SUV & 4x4" },
+  "Luxury": { label: "Luxury" },
+  "Electric": { label: "Electric" },
+  "Van": { label: "Vans" },
+  "Truck": { label: "Pickups" },
 };
 
 export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
   const router = useRouter();
   const { itemCount, openDrawer, remainingHoldSeconds } = useBasket();
+  const {
+    searchFilters,
+    setDateRange: setContextDateRange,
+    setSearchFilters: setContextFilters,
+  } = useSearch();
+
   const [user, setUser] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -36,41 +56,97 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState(null); // 'where', 'dates', 'vehicle'
 
-  const [location, setLocation] = useState(initialSearch.location || "All Locations");
-  const [startDate, setStartDate] = useState(initialSearch.startDate || null);
-  const [endDate, setEndDate] = useState(initialSearch.endDate || null);
-  const [vehicle, setVehicle] = useState(initialSearch.vehicle || "All Types");
+  const [location, setLocation] = useState(initialSearch.location || searchFilters?.location || "All Locations");
+  const [startDate, setStartDate] = useState(
+    initialSearch.startDate !== undefined ? initialSearch.startDate : (searchFilters?.startDate || null)
+  );
+  const [endDate, setEndDate] = useState(
+    initialSearch.endDate !== undefined ? initialSearch.endDate : (searchFilters?.endDate || null)
+  );
+  const [vehicle, setVehicle] = useState(initialSearch.vehicle || searchFilters?.vehicle || "All Types");
   const [availableVehicles, setAvailableVehicles] = useState(VEHICLE_TYPES);
 
-  // Sync internal state with initialSearch prop changes
   useEffect(() => {
-    if (initialSearch.location !== undefined) setLocation(initialSearch.location);
-    if (initialSearch.startDate !== undefined) setStartDate(initialSearch.startDate);
-    if (initialSearch.endDate !== undefined) setEndDate(initialSearch.endDate);
-    if (initialSearch.vehicle !== undefined) setVehicle(initialSearch.vehicle);
-  }, [initialSearch.location, initialSearch.startDate, initialSearch.endDate, initialSearch.vehicle]);
+    if (initialSearch.location !== undefined) {
+      setLocation(initialSearch.location);
+    } else if (searchFilters?.location !== undefined) {
+      setLocation(searchFilters.location);
+    }
+  }, [initialSearch.location, searchFilters?.location]);
+
+  useEffect(() => {
+    if (initialSearch.startDate !== undefined) {
+      setStartDate(initialSearch.startDate);
+    } else if (searchFilters?.startDate !== undefined) {
+      setStartDate(searchFilters.startDate);
+    }
+  }, [initialSearch.startDate, searchFilters?.startDate]);
+
+  useEffect(() => {
+    if (initialSearch.endDate !== undefined) {
+      setEndDate(initialSearch.endDate);
+    } else if (searchFilters?.endDate !== undefined) {
+      setEndDate(searchFilters.endDate);
+    }
+  }, [initialSearch.endDate, searchFilters?.endDate]);
+
+  useEffect(() => {
+    if (initialSearch.vehicle !== undefined) {
+      setVehicle(initialSearch.vehicle);
+    } else if (searchFilters?.vehicle !== undefined) {
+      setVehicle(searchFilters.vehicle);
+    }
+  }, [initialSearch.vehicle, searchFilters?.vehicle]);
 
   const navRef = useRef(null);
 
-  // Calendar State
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const kidUser = session.getUser();
-      if (kidUser) {
-        setUser(kidUser);
-      } else {
+    if (typeof window === "undefined") return;
+    let active = true;
+
+    async function loadAccount() {
+      let fallbackUser = session.getUser();
+      if (!fallbackUser) {
         const storedUser = localStorage.getItem("user");
         if (storedUser) {
-          try { setUser(JSON.parse(storedUser)); } catch (e) { }
+          try {
+            fallbackUser = JSON.parse(storedUser);
+          } catch {}
         }
       }
+      if (active && fallbackUser) {
+        setUser(fallbackUser);
+      }
+
+      const token =
+        localStorage.getItem("token") || sessionStorage.getItem("kid_access_token");
+      if (!token) return;
+
+      try {
+        const res = await getMe(token);
+        if (active && res?.success && res.user) {
+          const merged = { ...(fallbackUser || {}), ...res.user };
+          setUser(merged);
+          localStorage.setItem("user", JSON.stringify(merged));
+        }
+      } catch {
+        // Keep fallback user
+      }
     }
+
+    Promise.resolve().then(() => {
+      if (active) void loadAccount();
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // Click outside to close expanded search & user dropdown
   useEffect(() => {
     function handleClickOutside(event) {
       if (navRef.current && !navRef.current.contains(event.target)) {
@@ -83,13 +159,12 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Update available vehicles when dates change
   useEffect(() => {
     if (startDate && endDate) {
       getCars({ start: startDate.toISOString(), end: endDate.toISOString() })
-        .then(res => {
+        .then((res) => {
           if (res.success && res.cars) {
-            const types = new Set(res.cars.map(c => c.category || "Sedan"));
+            const types = new Set(res.cars.map((c) => c.category || "Sedan"));
             setAvailableVehicles(["All Types", ...Array.from(types)]);
             if (!types.has(vehicle) && vehicle !== "All Types") {
               setVehicle("All Types");
@@ -101,19 +176,14 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
     }
   }, [startDate, endDate]);
 
-  // Reset sign-in loading state if user navigates back (bfcache) or switches back to tab
   useEffect(() => {
-    const handleResetLoading = () => {
-      setSigningIn(false);
-    };
+    const handleResetLoading = () => setSigningIn(false);
 
     window.addEventListener("pageshow", handleResetLoading);
     window.addEventListener("focus", handleResetLoading);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        setSigningIn(false);
-      }
+      if (document.visibilityState === "visible") setSigningIn(false);
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -126,10 +196,7 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
 
   const handleKidSignIn = async () => {
     setSigningIn(true);
-    // Safety fallback: reset loading if browser navigation doesn't occur within 6 seconds
-    const safetyTimer = setTimeout(() => {
-      setSigningIn(false);
-    }, 6000);
+    const safetyTimer = setTimeout(() => setSigningIn(false), 6000);
 
     try {
       await redirectToKID();
@@ -148,7 +215,7 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refresh_token: kidRefresh }),
-        }).catch(() => { });
+        }).catch(() => {});
       }
       session.clear();
       localStorage.removeItem("token");
@@ -170,6 +237,9 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
       vehicle,
       ...(overrides && typeof overrides === "object" ? overrides : {}),
     };
+    if (setContextFilters) {
+      setContextFilters(searchData);
+    }
     if (onSearchSubmit) {
       onSearchSubmit(searchData);
     } else {
@@ -182,12 +252,26 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
     }
   };
 
+  const handleSelectLocation = (selectedCity) => {
+    setLocation(selectedCity);
+    handleSearch(null, { location: selectedCity });
+  };
+
   const handleSelectVehicle = (selectedType) => {
     setVehicle(selectedType);
     handleSearch(null, { vehicle: selectedType });
   };
 
-  // Calendar Logic
+  const toggleTab = (tab) => {
+    if (searchExpanded && activeTab === tab) {
+      setSearchExpanded(false);
+      setActiveTab(null);
+    } else {
+      setSearchExpanded(true);
+      setActiveTab(tab);
+    }
+  };
+
   const buildDaysForMonth = useCallback((offsetMonth = 0) => {
     const targetDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + offsetMonth, 1);
     const year = targetDate.getFullYear();
@@ -210,17 +294,26 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
   const handleApplyDatesAndClose = () => {
     setSearchExpanded(false);
     setActiveTab(null);
-    if (onSearchSubmit) {
-      onSearchSubmit({ location, startDate, endDate, vehicle });
-    }
+    handleSearch(null, { location, startDate, endDate, vehicle });
   };
 
   const handleClearDates = () => {
     setStartDate(null);
     setEndDate(null);
-    if (onSearchSubmit) {
-      onSearchSubmit({ location, startDate: null, endDate: null, vehicle });
+    if (setContextDateRange) {
+      setContextDateRange({ startDate: null, endDate: null });
     }
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      sp.delete("start");
+      sp.delete("startDate");
+      sp.delete("end");
+      sp.delete("endDate");
+      const newQuery = sp.toString();
+      const newUrl = newQuery ? `${window.location.pathname}?${newQuery}` : window.location.pathname;
+      window.history.replaceState(null, "", newUrl);
+    }
+    handleSearch(null, { startDate: null, endDate: null });
   };
 
   const handleDayClick = (day) => {
@@ -236,119 +329,147 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
         const selectedStart = startDate;
         const selectedEnd = day;
         setEndDate(day);
+        if (setContextDateRange) {
+          setContextDateRange({ startDate: selectedStart, endDate: selectedEnd });
+        }
 
-        // Turn to vehicle tab and update search after completing date selection
         setTimeout(() => {
-          setActiveTab('vehicle');
-          if (onSearchSubmit) {
-            onSearchSubmit({
-              location,
-              startDate: selectedStart,
-              endDate: selectedEnd,
-              vehicle,
-            });
-          }
-        }, 300);
+          setSearchExpanded(false);
+          setActiveTab(null);
+          handleSearch(null, {
+            startDate: selectedStart,
+            endDate: selectedEnd,
+          });
+        }, 250);
       }
     }
   };
 
-  const prevMonth = (e) => { e.stopPropagation(); setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1)); };
-  const nextMonth = (e) => { e.stopPropagation(); setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1)); };
+  const prevMonth = (e) => {
+    e.stopPropagation();
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  };
+  const nextMonth = (e) => {
+    e.stopPropagation();
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+  };
 
   const month1 = buildDaysForMonth(0);
   const month2 = buildDaysForMonth(1);
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200 transition-all duration-300">
-      <div className="w-full px-4 sm:px-8 lg:px-12 xl:px-16 h-20 flex items-center justify-between gap-4" ref={navRef}>
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
+      <div className="w-full px-4 sm:px-8 lg:px-12 xl:px-16 h-16 sm:h-18 flex items-center justify-between gap-4 max-w-[1920px] mx-auto" ref={navRef}>
         {/* Brand Logo */}
-        <Link href="/" className="flex items-center gap-1 text-xl font-extrabold text-brand-primary tracking-tight no-underline">
-          <img src="/blue-logo.png" alt="Logo" width={64} height={64} />
-          <span>DriveKH</span>
+        <Link href="/" className="flex items-center gap-1.5 text-lg font-extrabold text-slate-900 tracking-tight no-underline shrink-0">
+          <img src="/blue-logo.png" alt="DriveKH" width={40} height={40} className="object-contain" />
+          <span>Drive<span className="text-blue-600">KH</span></span>
         </Link>
 
-        {/* Search Pill */}
-        <div className="flex-1 flex justify-center relative w-full max-w-2xl">
-          <div className="flex items-center bg-white border border-gray-300 rounded-full shadow-sm hover:shadow-md transition-all duration-200 w-full pl-8 pr-2 py-2">
-            <div
-              className={`flex flex-col flex-1 cursor-pointer transition-all ${activeTab === 'where' ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
-              onClick={() => { setSearchExpanded(true); setActiveTab('where'); }}
+        {/* Compact Search Pill */}
+        <div className="flex-1 flex justify-center relative max-w-xl">
+          <div className="flex items-center bg-white border border-slate-200 rounded-full shadow-xs hover:shadow-sm transition-all w-full pl-5 pr-1.5 py-1.5">
+            <button
+              type="button"
+              className="flex flex-col flex-1 text-left cursor-pointer px-1"
+              onClick={() => toggleTab("where")}
             >
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-gray-900">Where?</span>
-              <span className="text-sm font-medium text-gray-500 truncate">{location}</span>
-            </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Where</span>
+              <span className="text-xs font-semibold text-slate-800 truncate">{location}</span>
+            </button>
 
-            <div className="w-px h-8 bg-gray-200 mx-4"></div>
-
-            <div
-              className={`flex flex-col flex-1 cursor-pointer transition-all ${activeTab === 'dates' ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
-              onClick={() => { setSearchExpanded(true); setActiveTab('dates'); }}
-            >
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-gray-900">When?</span>
-              <span className="text-sm font-medium text-gray-500 truncate">
-                {startDate && endDate ? `${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}` : startDate ? startDate.toLocaleDateString() : "Any day"}
-              </span>
-            </div>
-
-            <div className="w-px h-8 bg-gray-200 mx-4"></div>
-
-            <div
-              className={`flex flex-col flex-[1.2] cursor-pointer transition-all ${activeTab === 'vehicle' ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
-              onClick={() => { setSearchExpanded(true); setActiveTab('vehicle'); }}
-            >
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-gray-900">Car Type</span>
-              <span className="text-sm font-medium text-gray-500 truncate">{vehicle}</span>
-            </div>
+            <div className="w-px h-6 bg-slate-200 mx-2.5" />
 
             <button
               type="button"
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-xs cursor-pointer ml-2 flex-shrink-0"
+              className="flex flex-col flex-1 text-left cursor-pointer px-1"
+              onClick={() => toggleTab("dates")}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Dates</span>
+              <span className="text-xs font-semibold text-slate-800 truncate">
+                {startDate && endDate
+                  ? `${startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${endDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                  : startDate
+                  ? startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                  : "Any dates"}
+              </span>
+            </button>
+
+            <div className="w-px h-6 bg-slate-200 mx-2.5 hidden sm:block" />
+
+            <button
+              type="button"
+              className="hidden sm:flex flex-col flex-1 text-left cursor-pointer px-1"
+              onClick={() => toggleTab("vehicle")}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Type</span>
+              <span className="text-xs font-semibold text-slate-800 truncate">{vehicle}</span>
+            </button>
+
+            <button
+              type="button"
+              className="flex items-center justify-center w-9 h-9 sm:w-auto sm:px-4 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs cursor-pointer ml-1.5 shrink-0 transition-colors"
               onClick={handleSearch}
               aria-label="Search"
             >
-              <Search className="w-4 h-4 text-white" strokeWidth={2.5} />
-              <span>Search</span>
+              <Search className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <span className="hidden sm:inline ml-1.5">Search</span>
             </button>
           </div>
 
-          {/* Dropdown Panels */}
-          {searchExpanded && activeTab === 'where' && (
-            <div className="absolute top-full mt-4 left-0 w-[400px] bg-white rounded-[32px] shadow-2xl p-6 z-50 border border-gray-100">
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider mb-4">Pick a city</h3>
-              <div className="flex flex-col gap-2">
-                {CITIES.map(city => (
+          {/* Where Dropdown */}
+          {searchExpanded && activeTab === "where" && (
+            <div className="absolute top-full mt-3 left-0 w-72 bg-white rounded-2xl shadow-xl p-4 z-50 border border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Location</span>
+                {location !== "All Locations" && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectLocation("All Locations")}
+                    className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                {CITIES.map((city) => (
                   <button
                     key={city}
-                    className={`text-left px-4 py-3 rounded-xl text-sm font-semibold transition-colors ${location === city ? 'bg-brand-primary/10 text-brand-primary border border-brand-primary/20' : 'hover:bg-gray-100 text-gray-700'}`}
-                    onClick={() => { setLocation(city); setActiveTab('dates'); }}
+                    type="button"
+                    className={`flex items-center gap-2.5 text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                      location === city
+                        ? "bg-blue-50 text-blue-700"
+                        : "hover:bg-slate-50 text-slate-700"
+                    }`}
+                    onClick={() => handleSelectLocation(city)}
                   >
-                    📍 {city}
+                    <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                    <span>{city}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {searchExpanded && activeTab === 'dates' && (
-            <div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 bg-white rounded-[32px] shadow-2xl p-6 sm:p-8 z-50 w-[95vw] max-w-[850px] border border-gray-100">
-
-              {/* Header: Status, selection summary, and close */}
-              <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+          {/* Dates Dropdown */}
+          {searchExpanded && activeTab === "dates" && (
+            <div className="absolute top-full mt-3 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-xl p-5 sm:p-6 z-50 w-[94vw] max-w-[740px] border border-slate-200">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">
+                  <h3 className="text-sm font-bold text-slate-900">
                     {startDate && endDate
                       ? `${getRentalDaysCount()}-day trip`
                       : startDate
-                        ? 'Now pick return date'
-                        : 'Pick your dates'}
+                      ? "Select return date"
+                      : "Select rental dates"}
                   </h3>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5">
                     {startDate && endDate
-                      ? `${startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                      ? `${startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${endDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
                       : startDate
-                        ? `Picked up ${startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · Now pick return`
-                        : 'Choose pickup & return date'}
+                      ? `Pick-up: ${startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                      : "Pick-up and return"}
                   </p>
                 </div>
 
@@ -357,7 +478,7 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
                     <button
                       type="button"
                       onClick={handleClearDates}
-                      className="text-xs font-semibold text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded-full hover:bg-gray-100 cursor-pointer transition-colors"
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-900 px-2.5 py-1 rounded-lg hover:bg-slate-100 cursor-pointer"
                     >
                       Clear
                     </button>
@@ -365,162 +486,103 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
                   <button
                     type="button"
                     onClick={() => { setSearchExpanded(false); setActiveTab(null); }}
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors text-base font-bold"
-                    aria-label="Close date picker"
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                    aria-label="Close"
                   >
-                    ✕
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* Months Navigation */}
-              <div className="flex items-center justify-between mb-6 px-4">
-                <button className="text-gray-500 hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded-full font-bold cursor-pointer" onClick={prevMonth}>‹</button>
-                <div className="flex flex-1 justify-around">
-                  <span className="font-bold text-gray-900 text-lg">{MONTH_NAMES[month1.month]} {month1.year}</span>
-                  <span className="font-bold text-gray-900 text-lg">{MONTH_NAMES[month2.month]} {month2.year}</span>
+              <div className="flex items-center justify-between mb-4 px-2">
+                <button
+                  type="button"
+                  className="text-slate-600 hover:bg-slate-100 w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+                  onClick={prevMonth}
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="flex flex-1 justify-around text-sm font-bold text-slate-900">
+                  <span>{MONTH_NAMES[month1.month]} {month1.year}</span>
+                  <span className="hidden sm:inline">{MONTH_NAMES[month2.month]} {month2.year}</span>
                 </div>
-                <button className="text-gray-500 hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded-full font-bold cursor-pointer" onClick={nextMonth}>›</button>
+                <button
+                  type="button"
+                  className="text-slate-600 hover:bg-slate-100 w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+                  onClick={nextMonth}
+                  aria-label="Next month"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
 
-              <div className="flex gap-12 justify-center px-4">
-                {/* Month 1 */}
-                <div className="flex-1">
-                  <div className="grid grid-cols-7 gap-y-4 gap-x-1 text-center mb-4">
-                    {DAY_LABELS.map(l => <div key={l} className="text-xs font-semibold text-gray-400">{l.charAt(0)}</div>)}
-                  </div>
-                  <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center">
-                    {month1.days.map((day, i) => {
-                      if (!day) return <div key={i} className="aspect-square" />;
-                      const isPast = day < today;
-                      const isStart = startDate && day.getTime() === startDate.getTime();
-                      const isEnd = endDate && day.getTime() === endDate.getTime();
-                      const inRange = startDate && endDate && day > startDate && day < endDate;
-                      return (
-                        <div
-                          key={day.toISOString()}
-                          className={`aspect-square flex items-center justify-center rounded-full text-sm font-semibold cursor-pointer transition-all mx-auto w-10 h-10
-                            ${isPast ? 'text-gray-300 line-through cursor-not-allowed' : 'hover:border hover:border-black text-gray-800'}
-                            ${isStart || isEnd ? 'bg-gray-900 text-white hover:bg-gray-900 hover:border-transparent' : ''}
-                            ${inRange ? 'bg-gray-100 text-gray-900 rounded-none w-full hover:border-transparent' : ''}
-                          `}
-                          onClick={() => handleDayClick(day)}
-                        >
-                          {day.getDate()}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-                {/* Month 2 */}
-                <div className="flex-1">
-                  <div className="grid grid-cols-7 gap-y-4 gap-x-1 text-center mb-4">
-                    {DAY_LABELS.map(l => <div key={l} className="text-xs font-semibold text-gray-400">{l.charAt(0)}</div>)}
-                  </div>
-                  <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center">
-                    {month2.days.map((day, i) => {
-                      if (!day) return <div key={i} className="aspect-square" />;
-                      const isPast = day < today;
-                      const isStart = startDate && day.getTime() === startDate.getTime();
-                      const isEnd = endDate && day.getTime() === endDate.getTime();
-                      const inRange = startDate && endDate && day > startDate && day < endDate;
-                      return (
-                        <div
-                          key={day.toISOString()}
-                          className={`aspect-square flex items-center justify-center rounded-full text-sm font-semibold cursor-pointer transition-all mx-auto w-10 h-10
-                            ${isPast ? 'text-gray-300 line-through cursor-not-allowed' : 'hover:border hover:border-black text-gray-800'}
-                            ${isStart || isEnd ? 'bg-gray-900 text-white hover:bg-gray-900 hover:border-transparent' : ''}
-                            ${inRange ? 'bg-gray-100 text-gray-900 rounded-none w-full hover:border-transparent' : ''}
-                          `}
-                          onClick={() => handleDayClick(day)}
-                        >
-                          {day.getDate()}
-                        </div>
-                      )
-                    })}
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 px-2">
+                <CalendarMonth
+                  days={month1.days}
+                  year={month1.year}
+                  month={month1.month}
+                  startDate={startDate}
+                  endDate={endDate}
+                  today={today}
+                  onDayClick={handleDayClick}
+                />
+                <div className="hidden sm:block">
+                  <CalendarMonth
+                    days={month2.days}
+                    year={month2.year}
+                    month={month2.month}
+                    startDate={startDate}
+                    endDate={endDate}
+                    today={today}
+                    onDayClick={handleDayClick}
+                  />
                 </div>
               </div>
 
-              {/* Footer Action Bar: Status summary, Done/Close and Choose Vehicle buttons */}
-              <div className="mt-8 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
-                <div className="text-xs text-gray-600 font-medium">
-                  {startDate && endDate ? (
-                    <span className="text-emerald-700 font-bold flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      {getRentalDaysCount()} days ✓ — Now choose your car
-                    </span>
-                  ) : startDate ? (
-                    <span className="text-amber-700 font-semibold">
-                      📍 {startDate.toLocaleDateString()} picked — now pick return date
-                    </span>
-                  ) : (
-                    <span>Pick a start date</span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleApplyDatesAndClose}
-                    className="px-4 py-2 rounded-full border border-gray-300 hover:border-gray-400 bg-white hover:bg-gray-50 text-xs font-bold text-gray-800 cursor-pointer transition-colors shadow-xs"
-                  >
-                    Done
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('vehicle');
-                      if (startDate && endDate && onSearchSubmit) {
-                        onSearchSubmit({ location, startDate, endDate, vehicle });
-                      }
-                    }}
-                    className="px-5 py-2 rounded-full bg-brand-primary hover:bg-brand-hover text-white text-xs font-bold shadow-xs cursor-pointer transition-colors flex items-center gap-1.5"
-                  >
-                    <span>Choose Car</span>
-                    <span>→</span>
-                  </button>
-                </div>
+              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyDatesAndClose}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-blue-600 text-white text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  {startDate && endDate ? "Apply" : "Done"}
+                </button>
               </div>
-
             </div>
           )}
 
-          {searchExpanded && activeTab === 'vehicle' && (
-            <div className="absolute top-full mt-4 right-0 w-[420px] bg-white rounded-[32px] shadow-2xl p-6 z-50 border border-gray-100">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Pick a car type</h3>
+          {/* Vehicle Type Dropdown */}
+          {searchExpanded && activeTab === "vehicle" && (
+            <div className="absolute top-full mt-3 right-0 w-72 bg-white rounded-2xl shadow-xl p-4 z-50 border border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Vehicle Type</span>
                 {vehicle !== "All Types" && (
                   <button
                     type="button"
                     onClick={() => handleSelectVehicle("All Types")}
-                    className="text-xs font-bold text-brand-primary hover:underline cursor-pointer"
+                    className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
                   >
-                    Clear
+                    Reset
                   </button>
                 )}
               </div>
-              {startDate && endDate ? (
-                <p className="text-[10px] text-brand-primary mb-3 font-semibold bg-brand-primary/10 p-2 rounded-lg">Cars ready for your dates.</p>
-              ) : (
-                <p className="text-[10px] text-gray-500 mb-3 bg-gray-50 p-2 rounded-lg">Browse all car types.</p>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[340px] overflow-y-auto pr-1">
-                {availableVehicles.map(type => {
-                  const meta = VEHICLE_META[type] || { icon: "🚘", label: type };
+              <div className="grid grid-cols-2 gap-1.5">
+                {availableVehicles.map((type) => {
+                  const meta = VEHICLE_META[type] || { label: type };
                   const isSelected = vehicle === type;
                   return (
                     <button
                       key={type}
                       type="button"
-                      className={`flex items-center gap-2.5 text-left px-3.5 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer ${isSelected
-                        ? 'bg-brand-primary text-white shadow-sm ring-2 ring-brand-primary/20'
-                        : 'hover:bg-gray-100 text-gray-800 border border-gray-100'
-                        }`}
+                      className={`text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-blue-600 text-white"
+                          : "hover:bg-slate-50 text-slate-700 border border-slate-100"
+                      }`}
                       onClick={() => handleSelectVehicle(type)}
                     >
-                      <span className="text-lg">{meta.icon}</span>
-                      <span className="truncate">{meta.label}</span>
+                      {meta.label}
                     </button>
                   );
                 })}
@@ -529,85 +591,50 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
           )}
         </div>
 
-        {/* User Profile Navigation */}
-        <div className="flex items-center gap-4 relative">
-          {/* Basket Checkout Trigger with Item Count & 15m Hold Countdown */}
+        {/* Right Actions: Basket & Account */}
+        <div className="flex items-center gap-2.5 relative shrink-0">
           <button
             type="button"
             onClick={openDrawer}
-            className={`relative flex items-center gap-1.5 h-9 rounded-full transition-all cursor-pointer select-none shadow-xs border ${
+            className={`relative flex items-center gap-1.5 h-9 px-3 rounded-full transition-colors cursor-pointer border text-xs font-semibold ${
               remainingHoldSeconds > 0
                 ? remainingHoldSeconds <= 120
-                  ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 px-2.5"
-                  : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 px-2.5"
-                : "bg-white border-gray-200 hover:bg-gray-50 text-gray-800 px-2.5"
+                  ? "bg-rose-50 border-rose-200 text-rose-700"
+                  : "bg-amber-50 border-amber-200 text-amber-800"
+                : "bg-white border-slate-200 hover:bg-slate-50 text-slate-800"
             }`}
-            title={
-              remainingHoldSeconds > 0
-                ? `Active Hold: ${Math.floor(remainingHoldSeconds / 60)}:${String(remainingHoldSeconds % 60).padStart(2, "0")} remaining`
-                : "Open Rental Basket"
-            }
             aria-label="Rental Basket"
           >
-            <div className="relative flex items-center justify-center">
-              <ShoppingCartMinus className="w-4 h-4" />
-              {itemCount > 0 && (
-                <span className="absolute -top-2 -right-2.5 min-w-[15px] h-[15px] px-1 rounded-full bg-brand-primary text-white text-[10px] font-black flex items-center justify-center shadow-xs">
-                  {itemCount}
-                </span>
-              )}
-            </div>
-
+            <ShoppingBag className="w-4 h-4" />
+            {itemCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-none">
+                {itemCount}
+              </span>
+            )}
             {remainingHoldSeconds > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold">
-                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                <span>
-                  {Math.floor(remainingHoldSeconds / 60)}:{String(remainingHoldSeconds % 60).padStart(2, "0")}
-                </span>
+              <span className="font-mono text-[11px] font-bold">
+                {Math.floor(remainingHoldSeconds / 60)}:{String(remainingHoldSeconds % 60).padStart(2, "0")}
               </span>
             )}
           </button>
 
-          {/* <Link
-            href="/auth/register"
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white border border-gray-300 text-gray-900 hover:bg-gray-50 transition-all no-underline"
-          >
-            Become a Host
-          </Link> */}
-
           {user ? (
             <div className="relative">
-              <div
-                className="flex items-center  bg-white border-gray-300 rounded-full shadow-sm hover:shadow-md transition-all cursor-pointer select-none"
+              <button
+                type="button"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="w-9 h-9 rounded-full bg-slate-900 hover:bg-blue-600 text-white flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                aria-label="Account menu"
               >
-                {/* <div className="flex flex-col text-right pl-1">
-                  <span className="text-xs font-bold text-gray-900 max-w-[110px] truncate leading-tight">
-                    {user.first}{user.name || "KID User"}
-                  </span>
-                  {user.kid && (
-                    <span className="text-[10px] text-brand-primary font-mono font-bold leading-tight">
-                      KID-{user.kid}
-                    </span>
-                  )}
-                </div> */}
-                <div className="w-9 h-9 rounded-full bg-brand-primary text-white flex items-center justify-center text-xs font-bold shadow-sm">
-                  {user.name ? user.name.charAt(0).toUpperCase() : "👤"}
-                </div>
-              </div>
+                {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+              </button>
 
-              {/* User Dropdown Menu */}
               {dropdownOpen && (
-                <div className="absolute top-[115%] right-0 w-60 bg-white border border-gray-200 rounded-2xl shadow-xl py-2 z-50">
-                  <div className="px-4 py-3 border-b border-gray-100 text-xs">
-                    <div className="font-bold text-gray-900">{user.name || "KID User"}</div>
-                    {user.kid && (
-                      <div className="text-brand-primary font-mono text-[11px] font-semibold mt-0.5">
-                        KID Number: {user.kid}
-                      </div>
-                    )}
+                <div className="absolute top-[115%] right-0 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 z-50">
+                  <div className="px-4 py-2.5 border-b border-slate-100">
+                    <div className="text-xs font-bold text-slate-900 truncate">{user.name || "Account"}</div>
                     {user.email && (
-                      <div className="text-gray-500 text-[11px] truncate mt-0.5">{user.email}</div>
+                      <div className="text-[11px] text-slate-500 truncate mt-0.5">{user.email}</div>
                     )}
                   </div>
                   <button
@@ -616,48 +643,59 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
                       setDropdownOpen(false);
                       openDrawer();
                     }}
-                    className="flex items-center justify-between w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                    className="flex items-center justify-between w-full text-left px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
                   >
                     <span className="flex items-center gap-2.5">
-                      <span>🛒</span>
-                      <span>My Basket</span>
+                      <ShoppingBag className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Basket</span>
                     </span>
                     {itemCount > 0 && (
-                      <span className="px-2 py-0.5 rounded-full bg-brand-primary text-white text-[10px] font-bold">
+                      <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold">
                         {itemCount}
                       </span>
                     )}
                   </button>
                   <Link
                     href="/saved"
-                    className="flex items-center gap-2.5 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 no-underline"
+                    className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 no-underline"
                     onClick={() => setDropdownOpen(false)}
                   >
-                    <span>❤️</span>
+                    <Heart className="w-3.5 h-3.5 text-slate-400" />
                     <span>Saved Cars</span>
                   </Link>
                   <Link
-                    href="/auth/kid/profile"
-                    className="flex items-center gap-2.5 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 no-underline"
+                    href="/booking/my"
+                    className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 no-underline"
                     onClick={() => setDropdownOpen(false)}
                   >
-                    <span>🛡️</span>
-                    <span>My Profile</span>
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    <span>My Trips</span>
                   </Link>
                   <Link
-                    href="/booking/my"
-                    className="flex items-center gap-2.5 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 no-underline"
+                    href="/auth/kid/profile"
+                    className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 no-underline"
                     onClick={() => setDropdownOpen(false)}
                   >
-                    <span>🔖</span>
-                    <span>My Bookings</span>
+                    <User className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Profile</span>
                   </Link>
+                  {["ADMIN", "HOST"].includes(String(user?.role || "").toUpperCase()) && (
+                    <Link
+                      href="/dashboard"
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 no-underline"
+                      onClick={() => setDropdownOpen(false)}
+                    >
+                      <LayoutDashboard className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Dashboard</span>
+                    </Link>
+                  )}
                   <button
+                    type="button"
                     onClick={handleLogout}
-                    className="flex items-center gap-2.5 w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 cursor-pointer border-t border-gray-100"
+                    className="flex items-center gap-2.5 w-full text-left px-4 py-2.5 text-xs font-medium text-rose-600 hover:bg-rose-50 cursor-pointer border-t border-slate-100 mt-1"
                   >
-                    <span>🚪</span>
-                    <span>Log Out</span>
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Log out</span>
                   </button>
                 </div>
               )}
@@ -668,21 +706,15 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
               type="button"
               onClick={handleKidSignIn}
               disabled={signingIn}
-              className="group relative inline-flex items-center justify-center gap-2 h-9 w-9 sm:w-auto sm:px-3.5 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 text-gray-800 hover:text-black text-xs font-semibold shadow-xs hover:shadow transition-all duration-150 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer select-none"
-              title="Sign in with KOOMPI ID (KID)"
+              className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold transition-colors disabled:opacity-60 cursor-pointer"
               aria-label="Sign in"
             >
               {signingIn ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-brand-primary shrink-0" />
-                  <span className="hidden sm:inline text-xs font-medium text-gray-600">Connecting…</span>
-                </>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
               ) : (
-                <>
-                  <LogIn className="w-4 h-4 text-gray-600 group-hover:text-black transition-colors shrink-0" />
-                  <span className="hidden sm:inline">Log in</span>
-                </>
+                <LogIn className="w-3.5 h-3.5 text-slate-600" />
               )}
+              <span className="hidden sm:inline">{signingIn ? "Connecting…" : "Log in"}</span>
             </button>
           )}
         </div>

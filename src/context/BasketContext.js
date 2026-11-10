@@ -78,6 +78,30 @@ export function BasketProvider({ children }) {
   const [compareList, setCompareList] = useState([]);
   const [toast, setToast] = useState(null);
 
+  // Global trip dates synchronized across Navbar, Car Cards, and Booking Page
+  const [tripDates, setTripDatesState] = useState({ startDate: null, endDate: null });
+
+  // Clean legacy stored dates so dates default to empty
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.removeItem("dkh_trip_dates");
+    } catch (e) {}
+  }, []);
+
+  const setTripDates = useCallback((dates) => {
+    setTripDatesState((prev) => {
+      const next = typeof dates === "function" ? dates(prev) : dates;
+      const s = next?.startDate ? (next.startDate instanceof Date ? next.startDate : new Date(next.startDate)) : null;
+      const e = next?.endDate ? (next.endDate instanceof Date ? next.endDate : new Date(next.endDate)) : null;
+      return { startDate: s, endDate: e };
+    });
+  }, []);
+
+  const clearTripDates = useCallback(() => {
+    setTripDates({ startDate: null, endDate: null });
+  }, [setTripDates]);
+
   // Refresh active reservation hold from backend
   const refreshActiveHold = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -229,7 +253,10 @@ export function BasketProvider({ children }) {
   }, []);
 
   const addToBasket = useCallback(
-    ({ car, startDate, endDate, addOns = [] }) => {
+    ({ car, startDate, endDate, addOns = [] }, options = {}) => {
+      const openDrawer = options?.openDrawer ?? true;
+      const showToastNotification = options?.showToast ?? true;
+
       const s = new Date(startDate);
       const e = new Date(endDate);
       const totalDays = Math.max(1, Math.ceil((e - s) / (1000 * 60 * 60 * 24)));
@@ -263,8 +290,12 @@ export function BasketProvider({ children }) {
 
       // Reset or start hold timer
       resetHold();
-      setIsDrawerOpen(true);
-      showToast(`Added ${car.brand || car.make || "Vehicle"} ${car.modelName || car.model || ""} to basket!`);
+      if (openDrawer) {
+        setIsDrawerOpen(true);
+      }
+      if (showToastNotification) {
+        showToast(`Added ${car.brand || car.make || "Vehicle"} ${car.modelName || car.model || ""} to basket!`);
+      }
     },
     [resetHold, showToast]
   );
@@ -315,31 +346,44 @@ export function BasketProvider({ children }) {
   }, []);
 
   const applyPromoCode = useCallback(
-    (code) => {
+    async (code) => {
       const clean = (code || "").trim().toUpperCase();
-      if (clean === "DRIVEKH10") {
-        const promo = { code: clean, percent: 10, label: "10% Off Special" };
-        setAppliedPromo(promo);
-        if (typeof window !== "undefined") localStorage.setItem("dkh_promo", JSON.stringify(promo));
-        showToast("Promo code applied: 10% discount!");
-        return { success: true };
+      if (!clean) {
+        showToast("Please enter a promo code", "error");
+        return { success: false, message: "Please enter a promo code" };
       }
-      if (clean === "WELCOME20") {
-        const promo = { code: clean, amount: 20, label: "$20 Welcome Voucher" };
-        setAppliedPromo(promo);
-        if (typeof window !== "undefined") localStorage.setItem("dkh_promo", JSON.stringify(promo));
-        showToast("Promo code applied: $20 discount!");
-        return { success: true };
+
+      try {
+        const { validatePromoCode } = await import("@/lib/api");
+        const res = await validatePromoCode(clean);
+        if (res && res.success && res.promo) {
+          setAppliedPromo(res.promo);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("dkh_promo", JSON.stringify(res.promo));
+          }
+          showToast(`Promo code applied: ${res.promo.label || res.promo.code}!`, "success");
+          return { success: true, promo: res.promo };
+        } else {
+          showToast(res?.message || "Invalid promo code. Try DRIVEKH10 or WELCOME20", "error");
+          return { success: false, message: res?.message || "Invalid promo code" };
+        }
+      } catch {
+        // Fallback for offline/local resilience
+        if (clean === "DRIVEKH10" || clean === "WELCOME20" || clean === "KHQRVIP") {
+          const promo =
+            clean === "DRIVEKH10"
+              ? { code: clean, percent: 10, label: "10% Off Special" }
+              : clean === "WELCOME20"
+              ? { code: clean, amount: 20, label: "$20 Welcome Voucher" }
+              : { code: clean, percent: 15, label: "15% Baray VIP Discount" };
+          setAppliedPromo(promo);
+          if (typeof window !== "undefined") localStorage.setItem("dkh_promo", JSON.stringify(promo));
+          showToast(`Promo code applied: ${promo.label}!`, "success");
+          return { success: true, promo };
+        }
+        showToast("Invalid promo code. Try DRIVEKH10 or WELCOME20", "error");
+        return { success: false, message: "Invalid promo code" };
       }
-      if (clean === "KHQRVIP") {
-        const promo = { code: clean, percent: 15, label: "15% Baray VIP Discount" };
-        setAppliedPromo(promo);
-        if (typeof window !== "undefined") localStorage.setItem("dkh_promo", JSON.stringify(promo));
-        showToast("Promo code applied: 15% discount!");
-        return { success: true };
-      }
-      showToast("Invalid promo code. Try DRIVEKH10 or WELCOME20", "error");
-      return { success: false, message: "Invalid promo code" };
     },
     [showToast]
   );

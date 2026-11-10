@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Camera, CheckCircle2, Check } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getMyBookings, getCarPhotoUrl } from "@/lib/api";
 import { useBasket } from "@/context/BasketContext";
@@ -12,20 +13,17 @@ function getToken() {
 }
 
 function InspectionContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("bookingId");
-  const initialMode = searchParams.get("mode") || "pickup"; // 'pickup' or 'return'
+  const initialMode = searchParams.get("mode") || "pickup";
 
   const { showToast } = useBasket();
 
   const [booking, setBooking] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState(initialMode); // 'pickup' or 'return'
+  const [mode, setMode] = useState(initialMode);
 
-  // Pick-up Inspection State
   const [pickupOdometer, setPickupOdometer] = useState("48,250");
-  const [pickupFuel, setPickupFuel] = useState("100%"); // 100%, 75%, 50%, 25%
+  const [pickupFuel, setPickupFuel] = useState("100%");
   const [photosCaptured, setPhotosCaptured] = useState({
     front: true,
     rear: false,
@@ -33,12 +31,9 @@ function InspectionContent() {
     passengerSide: false,
     dashboard: false,
   });
-  const [scratchNotes, setScratchNotes] = useState(
-    "Minor 2cm surface stone chip on lower front bumper. No dent."
-  );
+  const [scratchNotes, setScratchNotes] = useState("");
   const [handoverConfirmed, setHandoverConfirmed] = useState(false);
 
-  // Return Inspection State
   const [returnOdometer, setReturnOdometer] = useState("48,580");
   const [returnFuel, setReturnFuel] = useState("100%");
   const [returnPhotosCaptured, setReturnPhotosCaptured] = useState({
@@ -46,17 +41,13 @@ function InspectionContent() {
     rear: false,
     dashboard: false,
   });
-  const [returnConfirmed, setReturnConfirmed] = useState(false);
   const [depositRefunded, setDepositRefunded] = useState(false);
 
   const displayRef = (bookingId || "DKH-849204").replace(/^DKH-/, "").toUpperCase().slice(-8);
 
   useEffect(() => {
     const token = getToken();
-    if (!token || !bookingId || bookingId.startsWith("DKH-")) {
-      setLoading(false);
-      return;
-    }
+    if (!token || !bookingId || bookingId.startsWith("DKH-")) return;
 
     getMyBookings(token)
       .then((data) => {
@@ -65,29 +56,27 @@ function InspectionContent() {
           if (found) setBooking(found);
         }
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
   }, [bookingId]);
 
   const togglePhoto = (key) => {
     if (mode === "pickup") {
       setPhotosCaptured((prev) => ({ ...prev, [key]: !prev[key] }));
-      showToast(`Walkaround photo for ${key} recorded!`);
+      showToast(`Photo recorded (${key})`);
     } else {
       setReturnPhotosCaptured((prev) => ({ ...prev, [key]: !prev[key] }));
-      showToast(`Return inspection photo for ${key} recorded!`);
+      showToast(`Return photo recorded (${key})`);
     }
   };
 
   const handleConfirmPickupHandover = () => {
     setHandoverConfirmed(true);
-    showToast("Vehicle Handover Confirmed! Keys unlocked.");
+    showToast("Pick-up handover confirmed");
   };
 
   const handleConfirmReturn = () => {
-    setReturnConfirmed(true);
     setDepositRefunded(true);
-    showToast("Return inspection verified! $100.00 deposit released.");
+    showToast("Return verified · $100 deposit released");
   };
 
   const car = booking?.car;
@@ -99,149 +88,100 @@ function InspectionContent() {
     <>
       <Navbar />
 
-      <main className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
-        {/* Inspection Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <main className="max-w-3xl mx-auto px-4 py-8 sm:py-10 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold">
-                Trip Inspection &amp; Handover
-              </span>
-              <span className="text-xs font-mono font-bold text-slate-500">#{displayRef}</span>
+            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+              <span>Inspection</span>
+              <span>·</span>
+              <span className="font-mono font-semibold text-slate-700">#{displayRef}</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              Vehicle Condition &amp; Handover Log
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              Vehicle Inspection
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Joint in-app inspection between Renter and Host to record mileage, fuel, and condition
-            </p>
           </div>
 
-          {/* Mode Switcher */}
-          <div className="flex items-center bg-white border border-slate-300 rounded-full p-1 shadow-xs shrink-0">
+          <div className="flex items-center bg-white border border-slate-200 rounded-full p-0.5 shrink-0">
             <button
+              type="button"
               onClick={() => setMode("pickup")}
-              className={`px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                mode === "pickup"
-                  ? "bg-slate-900 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer ${
+                mode === "pickup" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              1. Pick-up Handover
+              Pick-up
             </button>
             <button
+              type="button"
               onClick={() => setMode("return")}
-              className={`px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                mode === "return"
-                  ? "bg-slate-900 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer ${
+                mode === "return" ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              2. Return &amp; Deposit
+              Return
             </button>
           </div>
         </div>
 
-        {/* Vehicle Identity Header Banner */}
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-xs mb-8 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-14 rounded-2xl overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
-              <img
-                src={getCarPhotoUrl(car?.photos?.[0])}
-                alt={model}
-                className="w-full h-full object-cover"
-              />
+        {/* Vehicle Banner */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3.5">
+            <div className="w-16 h-12 rounded-xl overflow-hidden bg-slate-100 shrink-0">
+              <img src={getCarPhotoUrl(car?.photos?.[0])} alt={model} className="w-full h-full object-cover" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">
-                {brand} {model}
-              </h2>
-              <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                <span className="font-mono font-bold bg-slate-100 px-2 py-0.5 rounded-md text-slate-800">
-                  Plate: {plate}
-                </span>
-                <span>·</span>
-                <span>Phnom Penh Fleet Depot</span>
-              </div>
+              <h2 className="text-sm font-bold text-slate-900">{brand} {model}</h2>
+              <p className="text-xs text-slate-500 font-mono">{plate}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/booking/success?bookingId=${bookingId || displayRef}`}
-              className="text-xs font-bold text-blue-600 hover:underline px-3 py-1.5"
-            >
-              View Digital Voucher
-            </Link>
-          </div>
+          <Link
+            href={`/booking/success?bookingId=${bookingId || displayRef}`}
+            className="text-xs font-semibold text-blue-600 hover:underline no-underline"
+          >
+            View pass
+          </Link>
         </div>
 
-        {/* Mode A: Pick-up Handover Inspection */}
+        {/* Pick-up Flow */}
         {mode === "pickup" && (
-          <div className="space-y-6">
+          <div>
             {handoverConfirmed ? (
-              <div className="bg-white border border-emerald-200 rounded-3xl p-8 text-center shadow-lg space-y-4 animate-fade-in">
-                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 text-3xl flex items-center justify-center mx-auto">
-                  ✓
+              <div className="bg-white border border-emerald-200 rounded-2xl p-8 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6" />
                 </div>
-                <h3 className="text-xl font-black text-slate-900">
-                  Pick-up Handover Confirmed &amp; Signed
-                </h3>
-                <p className="text-xs text-slate-600 max-w-md mx-auto">
-                  Both host and renter have verified odometer (<strong>{pickupOdometer} km</strong>), fuel level (<strong>{pickupFuel}</strong>), and walkaround photos. The keys are officially handed over!
+                <h3 className="text-lg font-bold text-slate-900">Pick-up confirmed</h3>
+                <p className="text-xs text-slate-600 max-w-sm mx-auto">
+                  Odometer <strong className="text-slate-900">{pickupOdometer} km</strong> · Fuel <strong className="text-slate-900">{pickupFuel}</strong>
                 </p>
-
-                <div className="p-4 bg-slate-50 rounded-2xl max-w-sm mx-auto text-xs text-left space-y-1.5 border border-slate-200">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Handover Time:</span>
-                    <span className="font-semibold">{new Date().toLocaleTimeString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Inspection Pass:</span>
-                    <span className="font-mono font-bold text-emerald-700">PASS-VERIFIED</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Recorded Scratches:</span>
-                    <span className="font-semibold text-slate-800">1 Logged</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-center gap-3">
-                  <button
-                    onClick={() => setMode("return")}
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
-                  >
-                    Proceed to Return Flow when trip ends →
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setMode("return")}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-blue-600 text-white font-semibold text-xs rounded-xl cursor-pointer"
+                >
+                  Switch to return inspection
+                </button>
               </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">
-                    Step 1: Record Mileage &amp; Fuel Level
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Verify the physical dashboard before taking off
-                  </p>
-                </div>
-
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Initial Odometer (km reading) *
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Odometer (km)
                     </label>
                     <input
                       type="text"
                       value={pickupOdometer}
                       onChange={(e) => setPickupOdometer(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 font-mono font-bold"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Fuel Gauge Level *
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Fuel level
                     </label>
                     <div className="grid grid-cols-4 gap-2">
                       {["100%", "75%", "50%", "25%"].map((f) => (
@@ -249,10 +189,10 @@ function InspectionContent() {
                           key={f}
                           type="button"
                           onClick={() => setPickupFuel(f)}
-                          className={`py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                          className={`py-2 text-xs font-semibold rounded-xl border cursor-pointer ${
                             pickupFuel === f
-                              ? "border-blue-600 bg-blue-50 text-blue-800 shadow-xs"
-                              : "border-slate-200 bg-white hover:border-slate-300 text-slate-700"
+                              ? "border-blue-600 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-white text-slate-700"
                           }`}
                         >
                           {f}
@@ -262,74 +202,67 @@ function InspectionContent() {
                   </div>
                 </div>
 
-                {/* 4-Side Walkaround Photos */}
+                {/* Condition Photos */}
                 <div className="pt-4 border-t border-slate-100 space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Step 2: Vehicle Walkaround Photos (4 Angles)
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Tap each angle to snap and register photo in the handover vault
-                    </p>
-                  </div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Walkaround photos
+                  </h3>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                     {[
-                      { id: "front", label: "Front Angle", icon: "🚘" },
-                      { id: "rear", label: "Rear Angle", icon: "🚗" },
-                      { id: "driverSide", label: "Driver Side", icon: "🚙" },
-                      { id: "passengerSide", label: "Passenger Side", icon: "🚐" },
-                      { id: "dashboard", label: "Odometer Dash", icon: "📟" },
+                      { id: "front", label: "Front" },
+                      { id: "rear", label: "Rear" },
+                      { id: "driverSide", label: "Left side" },
+                      { id: "passengerSide", label: "Right side" },
+                      { id: "dashboard", label: "Dashboard" },
                     ].map((slot) => {
                       const isTaken = photosCaptured[slot.id];
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={slot.id}
                           onClick={() => togglePhoto(slot.id)}
-                          className={`p-3 rounded-2xl border text-center cursor-pointer transition-all ${
+                          className={`p-3 rounded-xl border text-center cursor-pointer transition-colors ${
                             isTaken
-                              ? "border-emerald-500 bg-emerald-50/60 shadow-xs"
+                              ? "border-emerald-300 bg-emerald-50/60"
                               : "border-dashed border-slate-300 hover:border-blue-400 bg-slate-50"
                           }`}
                         >
-                          <div className="text-xl mb-1">{isTaken ? "✅" : slot.icon}</div>
-                          <div className="text-[11px] font-bold text-slate-800">{slot.label}</div>
+                          {isTaken ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+                          ) : (
+                            <Camera className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                          )}
+                          <div className="text-xs font-semibold text-slate-800">{slot.label}</div>
                           <div className="text-[10px] text-slate-400">
-                            {isTaken ? "Uploaded" : "Tap to Snap"}
+                            {isTaken ? "Recorded" : "Capture"}
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Pre-existing Scratches / Notes */}
                 <div className="pt-4 border-t border-slate-100 space-y-2">
-                  <label className="block text-xs font-bold text-slate-700">
-                    Step 3: Pre-existing Scratches or Wear Notes
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Existing marks or notes
                   </label>
                   <textarea
-                    rows={3}
+                    rows={2}
                     value={scratchNotes}
                     onChange={(e) => setScratchNotes(e.target.value)}
-                    placeholder="Log any noticeable scratches, windshield chips, or rim scuffs here..."
-                    className="w-full text-xs p-3 rounded-xl border border-slate-300 focus:outline-hidden"
+                    placeholder="Optional notes on pre-existing scratches…"
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-hidden focus:border-blue-600"
                   />
-                  <p className="text-[11px] text-slate-400">
-                    Both parties are protected: renter will not be held accountable for logged damages.
-                  </p>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
-                  <span className="text-xs text-slate-500 font-medium">
-                    Inspection verified by Host &amp; Renter
-                  </span>
-
+                <div className="pt-2 flex justify-end">
                   <button
+                    type="button"
                     onClick={handleConfirmPickupHandover}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer"
                   >
-                    Confirm Handover &amp; Unlock Keys →
+                    Confirm handover
                   </button>
                 </div>
               </div>
@@ -337,80 +270,43 @@ function InspectionContent() {
           </div>
         )}
 
-        {/* Mode B: Return & Deposit Refund */}
+        {/* Return Flow */}
         {mode === "return" && (
-          <div className="space-y-6">
+          <div>
             {depositRefunded ? (
-              <div className="bg-white border border-emerald-200 rounded-3xl p-8 text-center shadow-lg space-y-4 animate-fade-in">
-                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 text-3xl flex items-center justify-center mx-auto">
-                  💰
+              <div className="bg-white border border-emerald-200 rounded-2xl p-8 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6" />
                 </div>
-                <h3 className="text-xl font-black text-slate-900">
-                  Return Verified &amp; $100.00 Deposit Released!
-                </h3>
-                <p className="text-xs text-slate-600 max-w-md mx-auto">
-                  Vehicle returned in pristine condition. Final odometer reading confirmed at{" "}
-                  <strong>{returnOdometer} km</strong>. Full tank confirmed.
+                <h3 className="text-lg font-bold text-slate-900">Return verified</h3>
+                <p className="text-xs text-slate-600">
+                  Odometer <strong className="text-slate-900">{returnOdometer} km</strong> · $100.00 deposit refunded
                 </p>
-
-                <div className="p-4 bg-emerald-50 rounded-2xl max-w-sm mx-auto text-xs text-left space-y-2 border border-emerald-200">
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Refund Status:</span>
-                    <span className="font-bold text-emerald-800">REFUND PROCESSED</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Deposit Amount:</span>
-                    <span className="font-bold text-emerald-800">$100.00 USD</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Refund Method:</span>
-                    <span className="font-semibold text-slate-800">Original Baray Account (ABA)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Refund Transaction:</span>
-                    <span className="font-mono text-slate-800">#RFND-94821</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-center gap-3">
-                  <Link
-                    href="/booking/my"
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all no-underline inline-block"
-                  >
-                    View in My Trips &amp; Leave Review →
-                  </Link>
-                </div>
+                <Link
+                  href="/booking/my"
+                  className="inline-block px-5 py-2.5 bg-slate-900 hover:bg-blue-600 text-white font-semibold text-xs rounded-xl no-underline"
+                >
+                  Back to My Trips
+                </Link>
               </div>
             ) : (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">
-                    Step 1: Check-in Return Odometer &amp; Fuel
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Compare end readings against the pick-up handover log
-                  </p>
-                </div>
-
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Return Odometer (km reading) *
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Return odometer (km)
                     </label>
                     <input
                       type="text"
                       value={returnOdometer}
                       onChange={(e) => setReturnOdometer(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 font-mono font-bold"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold"
                     />
-                    <div className="text-[10px] text-slate-400 mt-1">
-                      Initial was: 48,250 km (330 km driven - within allowance)
-                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Return Fuel Gauge *
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Return fuel level
                     </label>
                     <div className="grid grid-cols-4 gap-2">
                       {["100%", "75%", "50%", "25%"].map((f) => (
@@ -418,10 +314,10 @@ function InspectionContent() {
                           key={f}
                           type="button"
                           onClick={() => setReturnFuel(f)}
-                          className={`py-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                          className={`py-2 text-xs font-semibold rounded-xl border cursor-pointer ${
                             returnFuel === f
-                              ? "border-blue-600 bg-blue-50 text-blue-800 shadow-xs"
-                              : "border-slate-200 bg-white hover:border-slate-300 text-slate-700"
+                              ? "border-blue-600 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-white text-slate-700"
                           }`}
                         >
                           {f}
@@ -431,68 +327,56 @@ function InspectionContent() {
                   </div>
                 </div>
 
-                {/* Return Photos Check */}
                 <div className="pt-4 border-t border-slate-100 space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Step 2: Return Verification Photos
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Confirm no new dents or scratches occurred during the rental period
-                    </p>
-                  </div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Return photos
+                  </h3>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2.5">
                     {[
-                      { id: "front", label: "Return Front" },
-                      { id: "rear", label: "Return Rear" },
-                      { id: "dashboard", label: "Final Dash & Fuel" },
+                      { id: "front", label: "Front" },
+                      { id: "rear", label: "Rear" },
+                      { id: "dashboard", label: "Dashboard" },
                     ].map((slot) => {
                       const isTaken = returnPhotosCaptured[slot.id];
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={slot.id}
                           onClick={() => togglePhoto(slot.id)}
-                          className={`p-4 rounded-2xl border text-center cursor-pointer transition-all ${
+                          className={`p-3 rounded-xl border text-center cursor-pointer transition-colors ${
                             isTaken
-                              ? "border-emerald-500 bg-emerald-50/60 shadow-xs"
+                              ? "border-emerald-300 bg-emerald-50/60"
                               : "border-dashed border-slate-300 hover:border-blue-400 bg-slate-50"
                           }`}
                         >
-                          <div className="text-xl mb-1">{isTaken ? "✅" : "📸"}</div>
-                          <div className="text-xs font-bold text-slate-800">{slot.label}</div>
+                          {isTaken ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+                          ) : (
+                            <Camera className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                          )}
+                          <div className="text-xs font-semibold text-slate-800">{slot.label}</div>
                           <div className="text-[10px] text-slate-400">
-                            {isTaken ? "Verified" : "Tap to verify"}
+                            {isTaken ? "Verified" : "Capture"}
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Deposit Refund Calculation Banner */}
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-xs">
-                  <div>
-                    <div className="font-bold text-emerald-900">
-                      Eligible for 100% Deposit Release
-                    </div>
-                    <div className="text-emerald-700 text-[11px] mt-0.5">
-                      No damages reported · Full fuel level matched
-                    </div>
-                  </div>
-                  <div className="text-base font-black text-emerald-800">$100.00 USD</div>
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                  <span className="font-semibold text-emerald-900">Deposit refund</span>
+                  <span className="font-bold text-emerald-800">$100.00</span>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
-                  <span className="text-xs text-slate-500 font-medium">
-                    Host &amp; Renter Signoff
-                  </span>
-
+                <div className="pt-2 flex justify-end">
                   <button
+                    type="button"
                     onClick={handleConfirmReturn}
-                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl cursor-pointer"
                   >
-                    Confirm Return &amp; Release $100 Deposit →
+                    Confirm return &amp; refund
                   </button>
                 </div>
               </div>

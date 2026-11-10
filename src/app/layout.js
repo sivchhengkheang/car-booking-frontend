@@ -1,5 +1,6 @@
 import "./globals.css";
 import { BasketProvider } from "@/context/BasketContext";
+import { SearchProvider } from "@/context/SearchContext";
 import BasketDrawer from "@/components/BasketDrawer";
 import Toast from "@/components/Toast";
 
@@ -13,11 +14,13 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col">
-        <BasketProvider>
-          {children}
-          <BasketDrawer />
-          <Toast />
-        </BasketProvider>
+        <SearchProvider>
+          <BasketProvider>
+            {children}
+            <BasketDrawer />
+            <Toast />
+          </BasketProvider>
+        </SearchProvider>
       </body>
     </html>
   );

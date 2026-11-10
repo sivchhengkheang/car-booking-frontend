@@ -2,7 +2,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, AlertCircle, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { loginUser } from "@/lib/api";
 import { redirectToKID } from "@/lib/kid-auth";
@@ -38,7 +38,7 @@ function LoginContent() {
         setError(data.message || "Invalid credentials");
       }
     } catch {
-      setError("Something went wrong — please try again");
+      setError("Unable to sign in. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -48,37 +48,36 @@ function LoginContent() {
     <>
       <Navbar />
 
-      <main className="min-h-[calc(100vh-80px)] flex items-center justify-center py-12 px-4 bg-gray-50/50">
-        <div className="w-full max-w-md bg-white border border-gray-200 rounded-3xl p-8 shadow-xl">
-          {/* Header */}
-          <div className="text-center pb-6 border-b border-gray-200 mb-6">
-            <h1 className="text-xl font-bold text-gray-900">Welcome to DriveKH</h1>
-            <p className="text-xs text-gray-500 mt-1">Log in to manage your car bookings</p>
+      <main className="min-h-[calc(100vh-80px)] flex items-center justify-center py-10 px-4">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm">
+          <div className="mb-6">
+            <h1 className="text-xl font-bold text-slate-900">Sign in</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Access your reservations</p>
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
-              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-gray-700 mb-1">
-                Email Address
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Email
               </label>
               <input
                 type="email"
-                className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 outline-none transition-all"
+                className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:border-blue-600 outline-none"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="sokha@example.com"
+                placeholder="you@example.com"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-gray-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Password
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 outline-none transition-all pr-10"
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:border-blue-600 outline-none pr-12"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -87,7 +86,7 @@ function LoginContent() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-semibold bg-transparent border-0 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-medium cursor-pointer"
                 >
                   {showPassword ? "Hide" : "Show"}
                 </button>
@@ -95,8 +94,8 @@ function LoginContent() {
             </div>
 
             {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 font-semibold flex items-center gap-1.5">
-                <span>⚠️</span>
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
@@ -104,65 +103,38 @@ function LoginContent() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3.5 px-6 rounded-xl font-bold bg-brand-primary hover:bg-brand-hover  shadow-md hover:shadow-lg transition-all active:scale-98 cursor-pointer disabled:opacity-50"
+              className="w-full mt-1 py-3 px-4 rounded-xl font-semibold text-xs text-white bg-slate-900 hover:bg-blue-600 transition-colors cursor-pointer disabled:opacity-50"
             >
               {loading ? "Signing in…" : "Continue"}
             </button>
           </form>
-          {/* ── KID SSO Divider ─────────────────────────────── */}
-          <div className="relative my-6">
+
+          <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200" />
+              <div className="w-full border-t border-slate-200" />
             </div>
             <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-[11px] font-semibold text-gray-400 uppercase tracking-widest">
-                or continue with
-              </span>
+              <span className="bg-white px-3 text-[11px] font-medium text-slate-400">or</span>
             </div>
           </div>
 
-          {/* KID Sign-In Button */}
           <button
             id="kid-signin-btn"
             type="button"
             onClick={redirectToKID}
-            className="w-full relative overflow-hidden group flex items-center justify-between py-3.5 px-5 rounded-2xl font-bold text-sm bg-gradient-to-r from-red-600 via-rose-600 to-[#FF385C] text-white shadow-md shadow-red-500/20 hover:shadow-xl hover:shadow-red-500/35 hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer border border-white/20"
+            className="w-full flex items-center justify-between py-3 px-4 rounded-xl font-semibold text-xs bg-rose-600 hover:bg-rose-700 text-white transition-colors cursor-pointer"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-white shadow-inner flex-shrink-0">
-                <ShieldCheck
-                  size={20}
-                  strokeWidth={2}
-                  className="text-white"
-                />
-              </div>
-              <div className="text-left">
-                <div className="text-sm font-extrabold text-white leading-tight flex items-center gap-1.5">
-                  Sign in with KID
-                  <span className="text-[9px] bg-white text-red-600 font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">SSO</span>
-                </div>
-                <div className="text-[11px] text-white/80 font-medium">KOOMPI ID · Email, Google, Apple &amp; Telegram</div>
-              </div>
-            </div>
-            <div className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white text-xs group-hover:translate-x-1 transition-transform">
-              →
-            </div>
+            <span className="flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Continue with KOOMPI ID</span>
+            </span>
+            <ArrowRight className="w-4 h-4" />
           </button>
 
-          <p className="text-center text-[11px] text-gray-500 mt-2 font-medium">
-            Unified digital identity &amp; wallet on Selendra EVM
-          </p>
-
-          {/* Security Callout */}
-          <div className="mt-6 pt-6 border-t border-gray-100 flex items-center justify-center gap-2 text-[11px] text-gray-500">
-            <span>🛡️</span>
-            <span>Secured with AirCover & KHQR Encryption</span>
-          </div>
-
-          <div className="mt-4 text-center">
-            <p className="text-xs text-gray-600">
+          <div className="mt-6 pt-5 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-600">
               Don&apos;t have an account?{" "}
-              <Link href="/auth/register" className="text-brand-primary font-bold hover:underline no-underline">
+              <Link href="/auth/register" className="text-blue-600 font-semibold hover:underline no-underline">
                 Sign up
               </Link>
             </p>
@@ -175,7 +147,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-500 text-sm">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500 text-xs">Loading…</div>}>
       <LoginContent />
     </Suspense>
   );

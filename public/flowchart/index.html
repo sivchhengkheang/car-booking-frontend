@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DriveKH App Workflow Flowchart</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      securityLevel: 'loose',
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      themeVariables: {
+        primaryColor: '#2563eb',
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#1d4ed8',
+        lineColor: '#64748b',
+        secondaryColor: '#f1f5f9',
+        tertiaryColor: '#ffffff'
+      }
+    });
+  </script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      margin: 0;
+      padding: 24px;
+    }
+    .header {
+      max-width: 1200px;
+      margin: 0 auto 30px auto;
+      text-align: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 8px;
+    }
+    p.subtitle {
+      color: #64748b;
+      font-size: 14px;
+      margin: 0;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      overflow-x: auto;
+    }
+    .card h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-top: 0;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #eff6ff;
+      color: #2563eb;
+      border: 1px solid #dbeafe;
+    }
+    .nav-bar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      padding: 12px 24px;
+      margin: -24px -24px 24px -24px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .nav-link {
+      color: #475569;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: #f1f5f9;
+      transition: all 0.2s;
+    }
+    .nav-link:hover {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    th {
+      background: #f8fafc;
+      font-weight: 700;
+      color: #475569;
+    }
+    .status-tag {
+      font-family: monospace;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="nav-bar">
+    <a href="#architecture" class="nav-link">1. Architecture</a>
+    <a href="#booking-flow" class="nav-link">2. Booking Journey</a>
+    <a href="#cleanup-worker" class="nav-link">3. 15-Min Hold Cleanup</a>
+    <a href="#auth-flow" class="nav-link">4. Authentication Flow</a>
+    <a href="#states" class="nav-link">5. Data States</a>
+    <a href="http://localhost:3000" class="nav-link" style="background:#0f172a;color:#fff;">← Back to App</a>
+  </div>
+
+  <div class="header">
+    <div style="margin-bottom:8px;"><span class="badge">DriveKH System Visualizer</span></div>
+    <h1>DriveKH Application Flowchart & Architecture</h1>
+    <p class="subtitle">Complete visual workflow of the Car Rental App across Next.js, Express, MongoDB Atlas, Redis & Baray KHQR</p>
+  </div>
+
+  <div class="container">
+
+    <!-- 1. System Architecture -->
+    <div class="card" id="architecture">
+      <h2><span>🏗️</span> 1. High-Level System Architecture</h2>
+      <div class="mermaid">
+flowchart TD
+    subgraph Client ["Client Layer (Next.js 16 App Router)"]
+        UI_Home["Homepage (/)"]
+        UI_Search["Search & Filters"]
+        UI_Booking["Booking Page (/booking)"]
+        UI_Basket["Basket Drawer / Basket Page"]
+        UI_Checkout["Checkout Page (/booking/checkout)"]
+        UI_Auth["KID OAuth / JWT Auth (/auth)"]
+    end
+
+    subgraph Server ["API Server (Express 5 REST API)"]
+        Router_Cars["/api/v1/cars"]
+        Router_Bookings["/api/v1/bookings"]
+        Router_Payments["/api/v1/payments"]
+        Router_Auth["/api/v1/auth"]
+        Worker_Cleanup["Booking Cleanup Worker\n(Runs every 60s)"]
+    end
+
+    subgraph Storage ["Data & Cache Layer"]
+        DB_Mongo[("MongoDB Atlas\n(Cars, Users, Bookings, Payments)")]
+        Cache_Redis[("Upstash Redis\n(Distributed Car Locks & Cache)")]
+    end
+
+    subgraph External ["External Third-Party Services"]
+        KID_OAuth["KOOMPI ID (KID OAuth 2.0)"]
+        Baray_KHQR["Baray Payment Gateway\n(KHQR / Bakong / Cards)"]
+    end
+
+    UI_Home --> Router_Cars
+    UI_Search --> Router_Cars
+    UI_Booking --> Router_Bookings
+    UI_Checkout --> Router_Payments
+    UI_Auth --> Router_Auth
+
+    Router_Auth <--> KID_OAuth
+    Router_Payments <--> Baray_KHQR
+
+    Router_Cars <--> DB_Mongo
+    Router_Bookings <--> DB_Mongo
+    Router_Payments <--> DB_Mongo
+    Router_Auth <--> DB_Mongo
+
+    Router_Cars <--> Cache_Redis
+    Router_Bookings <--> Cache_Redis
+    Worker_Cleanup --> DB_Mongo
+      </div>
+    </div>
+
+    <!-- 2. End-to-End User Booking Journey -->
+    <div class="card" id="booking-flow">
+      <h2><span>🚗</span> 2. End-to-End User Booking Flow (Search → 15m Hold → KHQR Payment)</h2>
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Customer as User / Customer
+    participant Frontend as DriveKH Frontend (Next.js)
+    participant Backend as Express API Server
+    participant Redis as Redis Cache & Locks
+    participant DB as MongoDB Atlas
+    participant Baray as Baray KHQR Gateway
+
+    %% Phase 1: Search & Browse
+    Note over Customer, Frontend: Phase 1: Discovery & Filtering
+    Customer->>Frontend: Visits Homepage (/)
+    Frontend->>Backend: GET /api/v1/cars?city=...&category=...
+    Backend->>DB: Query available vehicles
+    DB-->>Backend: Return cars array
+    Backend-->>Frontend: 200 OK (Cars list)
+    Frontend-->>Customer: Display Hero banner, Filter Bar & Car Cards
+
+    %% Phase 2: Vehicle Selection & Calendar
+    Note over Customer, Frontend: Phase 2: Booking Page & Date Selection
+    Customer->>Frontend: Clicks "Book →" on vehicle
+    Frontend->>Backend: GET /api/v1/cars/:carId + GET /booked-dates
+    Backend->>DB: Fetch vehicle details & existing reservations
+    DB-->>Backend: Return vehicle data + booked date ranges
+    Backend-->>Frontend: 200 OK
+    Frontend-->>Customer: Renders 3-Step Stepper, Calendar, Specs & Price
+
+    Customer->>Frontend: Selects Pick-up Date & Return Date
+    Frontend->>Frontend: Calculates totalDays & Price in real-time
+    Customer->>Frontend: (Optional) Enters Promo code (e.g. DRIVEKH10)
+    Frontend->>Backend: POST /api/v1/payments/validate-promo
+    Backend-->>Frontend: 200 OK (Discount applied)
+
+    %% Phase 3: Reservation Hold (15-Minute Lock)
+    Note over Customer, DB: Phase 3: 15-Minute Reservation Hold
+    Customer->>Frontend: Clicks "Book Now →" / "Continue"
+    Frontend->>Backend: POST /api/v1/bookings { carId, startDate, endDate }
+    Backend->>Redis: Acquire distributed lock for carId
+    Backend->>DB: Verify no overlapping confirmed/held bookings
+    Backend->>DB: Create Booking (status: PENDING_PAYMENT, holdExpiresAt: now + 15m)
+    Backend->>Redis: Release distributed lock
+    DB-->>Backend: Booking created (_id, holdExpiresAt)
+    Backend-->>Frontend: 201 Created { booking }
+    Frontend-->>Customer: Redirect to /booking/checkout?bookingId=...
+    Frontend->>Frontend: Starts live 15-minute countdown ticker in Navbar & Sidebar
+
+    %% Phase 4: Payment Checkout
+    Note over Customer, Baray: Phase 4: KHQR Payment via Baray
+    Customer->>Frontend: Confirms rental on Checkout Page
+    Frontend->>Backend: POST /api/v1/payments/checkout { bookingId }
+    Backend->>Backend: Encrypt payload with AES-256-CBC (BARAY_SK & BARAY_IV)
+    Backend->>Baray: Request payment session (amount, currency: USD)
+    Baray-->>Backend: Return paymentUrl + KHQR payload
+    Backend-->>Frontend: 200 OK { paymentUrl }
+    Frontend-->>Customer: Opens Baray KHQR modal / redirect to payment page
+
+    %% Phase 5: Confirmation & Fulfillment
+    Note over Baray, DB: Phase 5: Webhook & Confirmation
+    Customer->>Baray: Scans KHQR via Bakong / ABA / Wing Bank app
+    Baray->>Backend: POST /api/v1/payments/webhook/baray (Payment Success)
+    Backend->>DB: Update Booking (status: CONFIRMED, paymentStatus: PAID)
+    Backend->>DB: Save Payment record (status: COMPLETED, transactionId)
+    Backend-->>Baray: 200 OK Webhook Received
+    Baray-->>Customer: Payment success screen
+    Customer->>Frontend: Redirected to /booking/success?bookingId=...
+    Frontend->>Backend: GET /api/v1/bookings/:id
+    Backend-->>Frontend: 200 OK (Booking status: CONFIRMED)
+    Frontend-->>Customer: Displays confirmed booking voucher & pick-up details
+      </div>
+    </div>
+
+    <!-- 3. Background Cleanup Worker -->
+    <div class="card" id="cleanup-worker">
+      <h2><span>⏱️</span> 3. Background Booking Cleanup Worker (Auto 15-Min Hold Release)</h2>
+      <div class="mermaid">
+flowchart TD
+    Start(["Cleanup Worker (Runs every 60 seconds)"]) --> QueryPending["Find Bookings where:<br/>1. status = 'PENDING_PAYMENT'<br/>2. holdExpiresAt < Current Timestamp"]
+    QueryPending --> CheckCount{"Any expired<br/>holds found?"}
+
+    CheckCount -- No --> Sleep["Wait 60s for next tick"]
+    Sleep --> QueryPending
+
+    CheckCount -- Yes --> LoopHolds["Iterate over expired bookings"]
+    LoopHolds --> UpdateStatus["Update Booking status to 'EXPIRED' / 'CANCELLED'"]
+    UpdateStatus --> ReleaseCar["Release vehicle dates back to public inventory"]
+    ReleaseCar --> ClearCache["Invalidate Redis car availability cache"]
+    ClearCache --> Log["Log: 'Cleaned up N expired booking holds'"]
+    Log --> Sleep
+      </div>
+    </div>
+
+    <!-- 4. Authentication Flow -->
+    <div class="card" id="auth-flow">
+      <h2><span>🔐</span> 4. Authentication & Auto-Refresh Token Lifecycle</h2>
+      <div class="mermaid">
+flowchart TD
+    User([User]) --> ClickLogin["Clicks 'Sign in with KID' or enters Email/Password"]
+    ClickLogin --> Choice{"Auth Method?"}
+
+    Choice -- "KOOMPI ID (KID)" --> RedirectKID["Redirect to api.kid.koompi.org/oauth/authorize"]
+    RedirectKID --> KIDConsent["User approves login on KID"]
+    KIDConsent --> Callback["Callback: /auth/kid/callback with auth_code"]
+    Callback --> TokenExchange["POST /api/auth/kid/callback<br/>Exchanges code for access_token"]
+    TokenExchange --> SyncUser["POST /api/v1/auth/kid-login<br/>Syncs user into MongoDB"]
+    SyncUser --> IssueJWT["Issues DriveKH JWT accessToken + refreshToken"]
+
+    Choice -- "Standard Email/Pass" --> LocalLogin["POST /api/v1/auth/login"]
+    LocalLogin --> IssueJWT
+
+    IssueJWT --> SaveTokens["Save accessToken in localStorage & cookie"]
+    SaveTokens --> AuthenticatedState["User Authenticated State active in Navbar & Basket"]
+
+    AuthenticatedState --> APICall["Frontend makes authenticated API call"]
+    APICall --> ExpiredCheck{"Token expired<br/>or expires in <60s?"}
+
+    ExpiredCheck -- No --> ExecuteReq["Execute HTTP request with Bearer token"]
+    ExpiredCheck -- Yes --> AutoRefresh["POST /api/v1/auth/refresh with refreshToken"]
+    AutoRefresh --> NewJWT["Store new accessToken"]
+    NewJWT --> ExecuteReq
+      </div>
+    </div>
+
+    <!-- 5. State Reference -->
+    <div class="card" id="states">
+      <h2><span>📊</span> 5. Entity State Reference Table</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Entity</th>
+            <th>State</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Booking</strong></td>
+            <td><span class="status-tag">PENDING_PAYMENT</span></td>
+            <td>15-minute temporary reservation hold active. Car blocked from other users.</td>
+          </tr>
+          <tr>
+            <td><strong>Booking</strong></td>
+            <td><span class="status-tag" style="background:#ecfdf5;color:#047857;">CONFIRMED</span></td>
+            <td>KHQR payment completed. Booking is active and ready for pick-up.</td>
+          </tr>
+          <tr>
+            <td><strong>Booking</strong></td>
+            <td><span class="status-tag" style="background:#eff6ff;color:#1d4ed8;">ACTIVE</span></td>
+            <td>Customer has picked up the vehicle and trip is underway.</td>
+          </tr>
+          <tr>
+            <td><strong>Booking</strong></td>
+            <td><span class="status-tag" style="background:#f5f3ff;color:#6d28d9;">COMPLETED</span></td>
+            <td>Car returned, inspected, and security deposit refunded.</td>
+          </tr>
+          <tr>
+            <td><strong>Booking</strong></td>
+            <td><span class="status-tag" style="background:#fff1f2;color:#be123c;">EXPIRED</span></td>
+            <td>15-minute hold timed out without payment; inventory released.</td>
+          </tr>
+          <tr>
+            <td><strong>Booking</strong></td>
+            <td><span class="status-tag" style="background:#fef2f2;color:#991b1b;">CANCELLED</span></td>
+            <td>Cancelled by user or host before trip start.</td>
+          </tr>
+          <tr>
+            <td><strong>Payment</strong></td>
+            <td><span class="status-tag">PENDING</span></td>
+            <td>Baray transaction initialized, waiting for KHQR scan.</td>
+          </tr>
+          <tr>
+            <td><strong>Payment</strong></td>
+            <td><span class="status-tag" style="background:#ecfdf5;color:#047857;">COMPLETED</span></td>
+            <td>KHQR / card funds settled via Bakong or card network.</td>
+          </tr>
+          <tr>
+            <td><strong>Payment</strong></td>
+            <td><span class="status-tag" style="background:#fef2f2;color:#991b1b;">FAILED</span></td>
+            <td>Transaction failed or declined.</td>
+          </tr>
+          <tr>
+            <td><strong>Payment</strong></td>
+            <td><span class="status-tag" style="background:#eff6ff;color:#1d4ed8;">REFUNDED</span></td>
+            <td>Deposit or cancelled trip refunded to customer.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+</body>
+</html>
