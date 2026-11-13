@@ -1,22 +1,33 @@
 /**
  * KID OAuth - Client-side auth helper
  * Uses @kid-oauth/sdk (KIDOAuthClient) for browser redirect flow with PKCE (S256).
- *
- * Rules:
- * 1. Client secret stays on server (KIDOAuthServer).
- * 2. Browser generates PKCE S256 via KIDOAuthClient; getLoginUrl stores
- *    verifier in sessionStorage, and extractCallback retrieves it.
- * 3. Key users by `sub` (opaque, stable). `kid` is a 9-digit display string.
  */
 
 import { KIDOAuthClient } from '@kid-oauth/sdk';
 
+/**
+ * Dynamically resolves the redirect URI based on current browser origin.
+ * Automatically switches between http://localhost:3000/auth/kid/callback
+ * and https://car-rental-service-eta.vercel.app/auth/kid/callback
+ */
+export function getKidRedirectUri() {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/auth/kid/callback`;
+  }
+  return process.env.NEXT_PUBLIC_KID_REDIRECT_URI || 'http://localhost:3000/auth/kid/callback';
+}
+
+/** Factory for KIDOAuthClient with dynamic origin-aware redirectUri */
+export function getKidClient() {
+  return new KIDOAuthClient({
+    clientId: process.env.NEXT_PUBLIC_KID_CLIENT_ID || 'pk_cc4a0155-da8a-47fa-a659-8facccfb5eb6',
+    redirectUri: getKidRedirectUri(),
+    baseUrl: process.env.NEXT_PUBLIC_KID_BASE_URL || 'https://api.kid.koompi.org',
+  });
+}
+
 /** Singleton KIDOAuthClient for browser */
-export const kidClient = new KIDOAuthClient({
-  clientId: process.env.NEXT_PUBLIC_KID_CLIENT_ID || 'pk_cc4a0155-da8a-47fa-a659-8facccfb5eb6',
-  redirectUri: process.env.NEXT_PUBLIC_KID_REDIRECT_URI || 'http://localhost:3000/auth/kid/callback',
-  baseUrl: process.env.NEXT_PUBLIC_KID_BASE_URL || 'https://api.kid.koompi.org',
-});
+export const kidClient = getKidClient();
 
 /** Scopes enabled and requested */
 export const KID_SCOPES = 'openid profile.basic profile.contact wallet.read';
@@ -25,7 +36,8 @@ export const KID_SCOPES = 'openid profile.basic profile.contact wallet.read';
  * Builds the KID authorization URL with PKCE (S256) and redirects the browser.
  */
 export async function redirectToKID() {
-  const url = await kidClient.getLoginUrl({ scope: KID_SCOPES });
+  const client = getKidClient();
+  const url = await client.getLoginUrl({ scope: KID_SCOPES });
   window.location.assign(url);
 }
 
@@ -48,37 +60,20 @@ export const session = {
       sessionStorage.setItem('kid_access_token', data.kid_access_token);
     }
     if (data.user) {
-      sessionStorage.setItem('kid_user', JSON.stringify(data.user));
       localStorage.setItem('user', JSON.stringify(data.user));
-    }
-  },
-
-  updateTokens(tokens) {
-    const backendToken = tokens.accessToken || tokens.token || tokens.access_token;
-    const backendRefresh = tokens.refreshToken || tokens.refresh_token;
-
-    if (backendToken) {
-      localStorage.setItem('token', backendToken);
-    }
-    if (backendRefresh) {
-      localStorage.setItem('refreshToken', backendRefresh);
-      sessionStorage.setItem('kid_refresh_token', backendRefresh);
-    }
-    if (tokens.kid_access_token) {
-      sessionStorage.setItem('kid_access_token', tokens.kid_access_token);
     }
   },
 
   getUser() {
     try {
-      const raw = sessionStorage.getItem('kid_user') || localStorage.getItem('user');
+      const raw = localStorage.getItem('user') || sessionStorage.getItem('kid_user');
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   },
 
-  getAccessToken() {
+  getToken() {
     return localStorage.getItem('token') || sessionStorage.getItem('kid_access_token');
   },
 
@@ -86,16 +81,16 @@ export const session = {
     return localStorage.getItem('refreshToken') || sessionStorage.getItem('kid_refresh_token');
   },
 
-  isSignedIn() {
-    return !!this.getAccessToken() && !!this.getUser();
+  isAuthenticated() {
+    return !!this.getToken() || !!this.getUser();
   },
 
   clear() {
-    sessionStorage.removeItem('kid_access_token');
-    sessionStorage.removeItem('kid_refresh_token');
-    sessionStorage.removeItem('kid_user');
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
+    sessionStorage.removeItem('kid_access_token');
+    sessionStorage.removeItem('kid_refresh_token');
+    sessionStorage.removeItem('kid_user');
   },
 };
