@@ -366,8 +366,8 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
           <span>Drive<span className="text-blue-600">KH</span></span>
         </Link>
 
-        {/* Compact Search Pill */}
-        <div className="flex-1 flex justify-center relative max-w-xl">
+        {/* Compact Search Pill (Hidden on mobile, visible sm+) */}
+        <div className="hidden sm:flex flex-1 justify-center relative max-w-xl">
           <div className="flex items-center bg-white border border-slate-200 rounded-full shadow-xs hover:shadow-sm transition-all w-full pl-5 pr-1.5 py-1.5">
             <button
               type="button"
@@ -623,10 +623,17 @@ export default function Navbar({ onSearchSubmit, initialSearch = {} }) {
               <button
                 type="button"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="w-9 h-9 rounded-full bg-slate-900 hover:bg-blue-600 text-white flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                className="w-9 h-9 rounded-full bg-slate-900 hover:bg-blue-600 text-white flex items-center justify-center text-xs font-bold transition-colors cursor-pointer overflow-hidden border border-slate-200"
                 aria-label="Account menu"
               >
-                {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                {user.picture ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={user.picture} alt={user.name || "User"} className="w-full h-full object-cover" />
+                ) : user.name ? (
+                  user.name.charAt(0).toUpperCase()
+                ) : (
+                  "U"
+                )}
               </button>
 
               {dropdownOpen && (

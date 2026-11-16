@@ -32,13 +32,7 @@ export default function BookingPageSkeleton() {
             </div>
           </div>
 
-          <div className="rounded-2xl overflow-hidden h-[300px] md:h-[420px] grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] grid-rows-2 gap-2">
-            <div className="row-span-2 h-full w-full skeleton-shimmer" />
-            <div className="hidden md:block h-full w-full skeleton-shimmer" />
-            <div className="hidden md:block h-full w-full skeleton-shimmer" />
-            <div className="hidden md:block h-full w-full skeleton-shimmer" />
-            <div className="hidden md:block h-full w-full skeleton-shimmer" />
-          </div>
+          <div className="rounded-2xl overflow-hidden h-[280px] sm:h-[350px] md:h-[430px] lg:h-[480px] w-full skeleton-shimmer" />
         </div>
 
         {/* 2-Column Skeleton Matching lg:grid-cols-[1fr_390px] */}

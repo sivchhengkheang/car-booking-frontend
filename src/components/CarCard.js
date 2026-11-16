@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Heart, ChevronLeft, ChevronRight, Star, MapPin } from "lucide-react";
 import { getCarPhotoUrl } from "@/lib/api";
@@ -23,12 +23,18 @@ export default function CarCard({ car, index = 0 }) {
   const bookingUrl = getBookingUrl ? getBookingUrl(carId) : `/booking?carId=${carId}`;
   const wishlisted = isWishlisted(carId);
 
-  const photos =
-    car?.photos && car.photos.length > 0
-      ? car.photos
-      : [SAMPLE_CAR_PHOTOS[index % SAMPLE_CAR_PHOTOS.length]];
+  const photos = useMemo(() => {
+    if (car?.photos && Array.isArray(car.photos) && car.photos.length > 0) {
+      const urls = car.photos
+        .map((p, idx) => getCarPhotoUrl(p, idx))
+        .filter((u) => typeof u === "string" && u.trim().length > 0 && !u.includes("undefined"));
+      const unique = Array.from(new Set(urls)).slice(0, 3);
+      if (unique.length > 0) return unique;
+    }
+    return [SAMPLE_CAR_PHOTOS[index % SAMPLE_CAR_PHOTOS.length]];
+  }, [car?.photos, index]);
 
-  const currentPhoto = getCarPhotoUrl(photos[photoIndex % photos.length], index);
+  const currentPhoto = photos[photoIndex % photos.length];
 
   const brand = car.brand || car.make || "Vehicle";
   const model = car.modelName || car.model || "Model";
@@ -130,46 +136,46 @@ export default function CarCard({ car, index = 0 }) {
       </div>
 
       {/* Card Body */}
-      <div className="p-3.5 flex flex-col flex-1 justify-between gap-2.5">
+      <div className="p-2.5 sm:p-3.5 flex flex-col flex-1 justify-between gap-1.5 sm:gap-2">
         <Link href={bookingUrl} className="no-underline text-inherit block">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-bold text-slate-900 leading-snug group-hover:text-blue-600 transition-colors truncate">
+          <div className="flex items-start justify-between gap-1.5 sm:gap-2">
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug group-hover:text-blue-600 transition-colors truncate">
               {brand} {model}
-              <span className="text-slate-400 font-normal ml-1 text-xs">{car.year || 2024}</span>
+              <span className="text-slate-400 font-normal ml-1 text-[11px] sm:text-xs">{car.year || 2024}</span>
             </h3>
             {rating !== null ? (
-              <div className="flex items-center gap-0.5 text-xs font-semibold text-slate-800 shrink-0">
-                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+              <div className="flex items-center gap-0.5 text-[11px] sm:text-xs font-semibold text-slate-800 shrink-0">
+                <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-400 text-amber-400" />
                 <span>{Number(rating).toFixed(1)}</span>
               </div>
             ) : (
-              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
+              <span className="text-[9px] sm:text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
                 New
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1 truncate">
+          <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs text-slate-500 mt-0.5 sm:mt-1 truncate">
             <span>{transmission}</span>
             <span>·</span>
             <span>{seats} seats</span>
             <span>·</span>
             <span className="inline-flex items-center gap-0.5 truncate">
-              <MapPin className="w-3 h-3 shrink-0" />
+              <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
               {city}
             </span>
           </div>
         </Link>
 
         {/* Price & Book Row */}
-        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
+        <div className="pt-2 sm:pt-2.5 border-t border-slate-100 flex items-center justify-between">
           <div>
-            <div className="flex items-baseline gap-1">
-              <span className="font-bold text-slate-900 text-base">${price}</span>
-              <span className="text-slate-500 text-xs">/ day</span>
+            <div className="flex items-baseline gap-0.5 sm:gap-1">
+              <span className="font-bold text-slate-900 text-sm sm:text-base">${price}</span>
+              <span className="text-slate-500 text-[10px] sm:text-xs">/ day</span>
             </div>
             {rating !== null && reviewCount !== null && (
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[10px] sm:text-[11px] text-slate-400">
                 {reviewCount} {reviewCount === 1 ? "trip" : "trips"}
               </div>
             )}
@@ -177,7 +183,7 @@ export default function CarCard({ car, index = 0 }) {
 
           <Link
             href={bookingUrl}
-            className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-blue-600 text-white text-xs font-semibold transition-colors no-underline"
+            className="px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg bg-slate-900 hover:bg-blue-600 text-white text-[11px] sm:text-xs font-semibold transition-colors no-underline"
           >
             Book
           </Link>

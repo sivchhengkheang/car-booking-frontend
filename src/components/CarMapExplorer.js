@@ -72,14 +72,22 @@ function resolveCarCenter(car) {
   return { label: DEFAULT_CENTER.label, lat: DEFAULT_CENTER.lat, lng: DEFAULT_CENTER.lng };
 }
 
-export default function CarMapExplorer({ cars = [] }) {
+export default function CarMapExplorer({ cars = [], initialSelectedCarId = null }) {
   const { getBookingUrl } = useSearch();
-  const [selectedCarId, setSelectedCarId] = useState(null);
+  const [selectedCarId, setSelectedCarId] = useState(initialSelectedCarId);
   const [hoveredCarId, setHoveredCarId] = useState(null);
   const [selectedCity, setSelectedCity] = useState(null);
-  const [zoom, setZoom] = useState(13);
+  const [zoom, setZoom] = useState(initialSelectedCarId ? 14 : 13);
   const [isNavigating, setIsNavigating] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  useEffect(() => {
+    if (initialSelectedCarId) {
+      setSelectedCarId(initialSelectedCarId);
+      setSelectedCity(null);
+      setZoom(14);
+    }
+  }, [initialSelectedCarId]);
 
   const mappedCars = useMemo(() => {
     return cars.map((car) => {

@@ -214,7 +214,7 @@ export default function HomeFleetClient({ initialCars = null, initialQuery = nul
   return (
     <>
       {/* Filter & View Mode Controls Bar */}
-      <div className="sticky top-16 sm:top-18 z-40 bg-slate-50/95 backdrop-blur-md py-3 flex flex-wrap items-center justify-between gap-3 mb-6 border-y border-slate-200 -mx-4 px-4 sm:-mx-8 sm:px-8 lg:-mx-12 lg:px-12 xl:-mx-16 xl:px-16 min-h-[58px]">
+      <div className="bg-slate-50 py-3 flex flex-wrap items-center justify-between gap-3 mb-6 border-y border-slate-200 -mx-4 px-4 sm:-mx-8 sm:px-8 lg:-mx-12 lg:px-12 xl:-mx-16 xl:px-16 min-h-[58px]">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Sort Control */}
           <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 py-1.5">
@@ -296,8 +296,8 @@ export default function HomeFleetClient({ initialCars = null, initialQuery = nul
           )}
         </div>
 
-        {/* View Toggle */}
-        <div className="flex items-center bg-white border border-slate-200 rounded-full p-0.5">
+        {/* View Toggle (Hidden on mobile) */}
+        <div className="hidden md:flex items-center bg-white border border-slate-200 rounded-full p-0.5">
           <button
             type="button"
             onClick={() => setViewMode("grid")}
@@ -367,7 +367,7 @@ export default function HomeFleetClient({ initialCars = null, initialQuery = nul
           {viewMode === "map" ? (
             <CarMapExplorer cars={filteredCars} />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
               {filteredCars.map((car, idx) => (
                 <CarCard key={car._id || idx} car={car} index={idx} />
               ))}
@@ -389,7 +389,7 @@ export default function HomeFleetClient({ initialCars = null, initialQuery = nul
                   <h2 className="text-base font-bold text-slate-900">Under $35 / day</h2>
                   <p className="text-xs text-slate-500">Budget-friendly daily rentals</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
                   {under35Cars.map((car, idx) => (
                     <CarCard key={`budget-${car._id || idx}`} car={car} index={idx} />
                   ))}
@@ -403,7 +403,7 @@ export default function HomeFleetClient({ initialCars = null, initialQuery = nul
                   <h2 className="text-base font-bold text-slate-900">Luxury</h2>
                   <p className="text-xs text-slate-500">Premium comfort &amp; features</p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
                   {luxuryCars.map((car, idx) => (
                     <CarCard key={`lux-${car._id || idx}`} car={car} index={idx + 10} />
                   ))}

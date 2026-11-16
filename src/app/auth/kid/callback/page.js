@@ -35,10 +35,15 @@ function KIDCallbackContent() {
           throw new Error("No authorization code received from KID.");
         }
 
+        const redirectUri =
+          typeof window !== "undefined" && window.location?.origin
+            ? `${window.location.origin}/auth/kid/callback`
+            : "https://car-rental-service-eta.vercel.app/auth/kid/callback";
+
         const res = await fetch("/api/auth/kid/callback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, codeVerifier }),
+          body: JSON.stringify({ code, codeVerifier, redirectUri }),
         });
 
         const data = await res.json();
@@ -49,8 +54,19 @@ function KIDCallbackContent() {
         // Persist session (user keyed by sub)
         session.save(data);
         setStatus("success");
-        router.replace("/");
-        // router.replace("/auth/kid/profile");
+
+        // Directly navigate back to the current link after login is successful
+        const returnUrl =
+          (typeof window !== "undefined" && sessionStorage.getItem("kid_return_url")) ||
+          (typeof window !== "undefined" && window.location?.origin ? window.location.origin : "/") ||
+          "https://car-rental-service-eta.vercel.app/";
+
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("kid_return_url");
+          window.location.replace(returnUrl);
+        } else {
+          router.replace("/");
+        }
       } catch (err) {
         console.error("Callback error:", err);
         setErrorMessage(err.message || "An unexpected error occurred.");

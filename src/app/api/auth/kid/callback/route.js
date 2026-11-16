@@ -15,10 +15,9 @@ import { NextResponse } from 'next/server';
 import { getKidServer } from '@/lib/kid-server';
 
 export async function POST(request) {
-  const kidServer = getKidServer();
   try {
     const body = await request.json();
-    const { code, codeVerifier } = body;
+    const { code, codeVerifier, redirectUri: clientRedirectUri } = body;
 
     if (!code || !codeVerifier) {
       return NextResponse.json(
@@ -26,6 +25,23 @@ export async function POST(request) {
         { status: 400 }
       );
     }
+
+    // Determine the redirect URI matching where the request originated
+    let redirectUri = clientRedirectUri;
+    if (!redirectUri) {
+      const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+      const proto = request.headers.get("x-forwarded-proto") || "https";
+      if (host) {
+        redirectUri = `${proto}://${host}/auth/kid/callback`;
+      } else {
+        redirectUri =
+          process.env.KID_REDIRECT_URI ||
+          process.env.NEXT_PUBLIC_KID_REDIRECT_URI ||
+          'https://car-rental-service-eta.vercel.app/auth/kid/callback';
+      }
+    }
+
+    const kidServer = getKidServer(redirectUri);
 
     // Server-side code exchange with PKCE verifier
     const tokens = await kidServer.exchangeCode({ code, codeVerifier });
@@ -39,6 +55,18 @@ export async function POST(request) {
       }
     }
 
+    // Fetch full OIDC UserInfo if access_token is present to guarantee all claims (Telegram, Gmail, etc.)
+    let fullUserInfo = null;
+    if (tokens.access_token) {
+      try {
+        fullUserInfo = await kidServer.getUserInfo(tokens.access_token);
+      } catch (uiErr) {
+        console.warn("[KID callback] getUserInfo warning:", uiErr.message);
+      }
+    }
+
+    const kidProfile = { ...(tokens.user || {}), ...(fullUserInfo || {}) };
+
     // Synchronize KID user with Express backend & MongoDB
     let backendAuth = null;
     try {
@@ -49,13 +77,19 @@ export async function POST(request) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accessToken: tokens.access_token,
-          sub: tokens.user?.sub,
-          kid: tokens.user?.kid,
-          name: tokens.user?.name,
-          email: tokens.user?.email,
-          phoneNumber: tokens.user?.phone || tokens.user?.phoneNumber,
-          walletAddress: tokens.user?.wallet?.address,
-          merged_from: tokens.user?.merged_from,
+          sub: kidProfile.sub,
+          kid: kidProfile.kid,
+          name: kidProfile.name || (kidProfile.given_name ? `${kidProfile.given_name} ${kidProfile.family_name || ""}`.trim() : ""),
+          email: kidProfile.email,
+          emailVerified: kidProfile.email_verified ?? Boolean(kidProfile.email),
+          phoneNumber: kidProfile.phone || kidProfile.phone_number || kidProfile.phoneNumber,
+          phoneVerified: Boolean(kidProfile.phone_number_verified),
+          walletAddress: kidProfile.wallet_address || kidProfile.wallet?.address,
+          telegramUsername: kidProfile.telegram_username,
+          telegramId: kidProfile.telegram_id ? String(kidProfile.telegram_id) : "",
+          picture: kidProfile.picture,
+          preferredUsername: kidProfile.preferred_username,
+          merged_from: kidProfile.merged_from,
         }),
       });
 
@@ -77,14 +111,20 @@ export async function POST(request) {
     }
 
     // Merge response: prioritize backend JWT & MongoDB user profile, while retaining KID tokens
+    const mergedUser = {
+      ...(kidProfile || {}),
+      ...(backendAuth?.user || {}),
+    };
+
     return NextResponse.json({
       access_token: backendAuth?.accessToken || backendAuth?.token || tokens.access_token,
+      token: backendAuth?.accessToken || backendAuth?.token || tokens.access_token,
       refresh_token: backendAuth?.refreshToken || tokens.refresh_token,
       kid_access_token: tokens.access_token,
       kid_refresh_token: tokens.refresh_token,
       expires_in: tokens.expires_in,
       scope: tokens.scope,
-      user: backendAuth?.user || tokens.user, // Includes MongoDB _id, sub, kid, role, walletAddress
+      user: mergedUser, // Includes MongoDB _id, sub, kid, role, walletAddress, telegramUsername, picture, etc.
     });
   } catch (err) {
     console.error('[KID callback] token exchange failed:', err);

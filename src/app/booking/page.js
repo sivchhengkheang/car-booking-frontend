@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, Suspense, useMemo } from "react";
+import { useState, useEffect, useCallback, Suspense, useMemo, useRef } from "react";
 import {
   ArrowRight,
   AlertCircle,
@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Star,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
@@ -45,13 +46,8 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December"
 ];
 
-const SAMPLE_GALLERY_PHOTOS = [
-  "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=800&q=80",
-  "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=800&q=80",
-  "https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?auto=format&fit=crop&w=800&q=80",
-  "https://images.unsplash.com/photo-1583121274602-3e2820c69888?auto=format&fit=crop&w=800&q=80",
-];
+const DEFAULT_CAR_FALLBACK =
+  "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80";
 
 function getToken() {
   if (typeof window === "undefined") return null;
@@ -161,6 +157,10 @@ function BookingContent() {
   const [refreshingToken, setRefreshingToken] = useState(false);
   const [error, setError] = useState(() => (!carId ? "No vehicle selected" : null));
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [mobileIndex, setMobileIndex] = useState(0);
+  const mobileSliderRef = useRef(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   // Calendar state
   const today = useMemo(() => {
@@ -936,10 +936,51 @@ function BookingContent() {
 
   const gallery = useMemo(() => {
     if (car?.photos && Array.isArray(car.photos) && car.photos.length > 0) {
-      return car.photos.map((p, idx) => getCarPhotoUrl(p, idx));
+      const urls = car.photos
+        .map((p, idx) => getCarPhotoUrl(p, idx))
+        .filter((u) => typeof u === "string" && u.trim().length > 0 && !u.includes("undefined"));
+      const unique = Array.from(new Set(urls)).slice(0, 3);
+      if (unique.length > 0) return unique;
     }
-    return SAMPLE_GALLERY_PHOTOS;
+    return [DEFAULT_CAR_FALLBACK];
   }, [car]);
+
+  const openLightbox = (index = 0) => {
+    setLightboxIndex(index);
+    setLightboxOpen(true);
+  };
+
+  const handleMobileScroll = useCallback(() => {
+    const el = mobileSliderRef.current;
+    if (!el || el.offsetWidth === 0) return;
+    const newIdx = Math.round(el.scrollLeft / el.offsetWidth);
+    setMobileIndex(newIdx);
+  }, []);
+
+  const scrollMobileTo = useCallback((index) => {
+    const el = mobileSliderRef.current;
+    if (!el || gallery.length === 0) return;
+    const safeIdx = (index + gallery.length) % gallery.length;
+    el.scrollTo({
+      left: safeIdx * el.offsetWidth,
+      behavior: "smooth",
+    });
+    setMobileIndex(safeIdx);
+  }, [gallery.length]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+      else if (e.key === "ArrowLeft") {
+        setLightboxIndex((prev) => (prev - 1 + gallery.length) % gallery.length);
+      } else if (e.key === "ArrowRight") {
+        setLightboxIndex((prev) => (prev + 1) % gallery.length);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [lightboxOpen, gallery.length]);
 
   const featuresList = useMemo(() => {
     if (car?.features && Array.isArray(car.features) && car.features.length > 0) {
@@ -1139,44 +1180,189 @@ function BookingContent() {
             </div>
           </div>
 
-          {/* Photo Gallery Grid */}
-          <div className="rounded-2xl overflow-hidden relative group h-[300px] md:h-[420px]">
-            <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] grid-rows-2 gap-2 h-full">
-              <div className="relative h-full row-span-2 cursor-pointer overflow-hidden">
-                <img
-                  src={gallery[0] || SAMPLE_GALLERY_PHOTOS[0]}
-                  alt={`${brand} ${model}`}
-                  className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.02]"
-                  onError={(e) => { e.target.src = SAMPLE_GALLERY_PHOTOS[0]; }}
-                  onClick={() => setSelectedPhotoIndex(0)}
-                />
-              </div>
-
-              {[1, 2, 3, 4].map((idx) => {
-                const photo = gallery[idx] || SAMPLE_GALLERY_PHOTOS[idx % SAMPLE_GALLERY_PHOTOS.length];
-                return (
-                  <div key={idx} className="hidden md:block relative h-full w-full cursor-pointer overflow-hidden">
-                    <img
-                      src={photo}
-                      alt={`${brand} ${model} ${idx + 1}`}
-                      className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.03]"
-                      onError={(e) => { e.target.src = SAMPLE_GALLERY_PHOTOS[idx % SAMPLE_GALLERY_PHOTOS.length]; }}
-                      onClick={() => setSelectedPhotoIndex(idx)}
-                    />
-                  </div>
-                );
-              })}
+          {/* Photo Gallery - Single Layout Slide View */}
+          <div className="rounded-2xl overflow-hidden relative group h-[280px] sm:h-[350px] md:h-[430px] lg:h-[480px] bg-slate-100 border border-slate-200">
+            {/* Scrollable Slide Track */}
+            <div
+              ref={mobileSliderRef}
+              onScroll={handleMobileScroll}
+              className="flex w-full h-full overflow-x-auto snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x cursor-pointer"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              {gallery.map((photo, idx) => (
+                <div
+                  key={idx}
+                  className="w-full h-full shrink-0 snap-center snap-always relative overflow-hidden"
+                  onClick={() => openLightbox(idx)}
+                >
+                  <img
+                    src={photo}
+                    alt={`${brand} ${model} — photo ${idx + 1}`}
+                    className="w-full h-full object-cover select-none transition-transform duration-500 group-hover:scale-[1.01]"
+                    loading={idx === 0 ? "eager" : "lazy"}
+                    onError={(e) => {
+                      if (gallery[0] && e.currentTarget.src !== gallery[0]) {
+                        e.currentTarget.src = gallery[0];
+                      } else {
+                        e.currentTarget.src = DEFAULT_CAR_FALLBACK;
+                      }
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
+                </div>
+              ))}
             </div>
 
+            {/* Slide Navigation Chevrons (when > 1 photo) */}
+            {gallery.length > 1 && (
+              <div className="absolute inset-y-0 inset-x-3 sm:inset-x-4 flex items-center justify-between pointer-events-none z-10">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    scrollMobileTo(mobileIndex - 1);
+                  }}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center shadow-md pointer-events-auto transition-all cursor-pointer hover:scale-105 active:scale-95 opacity-100"
+                  aria-label="Previous photo"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    scrollMobileTo(mobileIndex + 1);
+                  }}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 hover:bg-white text-slate-800 flex items-center justify-center shadow-md pointer-events-auto transition-all cursor-pointer hover:scale-105 active:scale-95 opacity-100"
+                  aria-label="Next photo"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
+            {/* Slide Dot Indicators (when > 1 photo) */}
+            {gallery.length > 1 && (
+              <div className="absolute bottom-3 sm:bottom-4 inset-x-0 flex items-center justify-center gap-1.5 z-10 pointer-events-auto">
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 backdrop-blur-xs">
+                  {gallery.map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        scrollMobileTo(i);
+                      }}
+                      className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                        i === mobileIndex ? "w-5 bg-white" : "w-1.5 bg-white/60 hover:bg-white/90"
+                      }`}
+                      aria-label={`Go to photo ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Photo Counter Badge / Lightbox trigger */}
             <button
               type="button"
-              className="absolute bottom-4 right-4 bg-white/95 backdrop-blur-sm px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-900 shadow-sm border border-slate-200 hover:bg-white flex items-center gap-1.5 cursor-pointer"
-              onClick={() => setSelectedPhotoIndex((prev) => (prev + 1) % gallery.length)}
+              className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 bg-white/95 backdrop-blur-sm px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-900 shadow-sm border border-slate-200 hover:bg-white flex items-center gap-1.5 cursor-pointer z-10 transition-colors pointer-events-auto"
+              onClick={() => openLightbox(mobileIndex)}
             >
-              <Camera className="w-3.5 h-3.5" />
-              <span>{gallery.length} photos</span>
+              <Camera className="w-3.5 h-3.5 text-slate-700" />
+              <span>
+                {gallery.length > 1
+                  ? `${mobileIndex + 1} / ${gallery.length}`
+                  : "1 photo"}
+              </span>
             </button>
           </div>
+
+          {/* Fullscreen Lightbox Modal */}
+          {lightboxOpen && (
+            <div
+              className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6"
+              onClick={() => setLightboxOpen(false)}
+            >
+              {/* Lightbox Header */}
+              <div
+                className="flex items-center justify-between text-white z-10 max-w-6xl w-full mx-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-bold truncate">
+                    {brand} {model}
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    ({lightboxIndex + 1} of {gallery.length})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+                  aria-label="Close photo viewer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Main Image Display with Navigation Arrows */}
+              <div
+                className="relative flex-1 flex items-center justify-center max-w-6xl w-full mx-auto my-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {gallery.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxIndex((prev) => (prev - 1 + gallery.length) % gallery.length)}
+                    className="absolute left-2 sm:left-4 z-20 w-10 h-10 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label="Previous photo"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                )}
+
+                <img
+                  src={gallery[lightboxIndex]}
+                  alt={`${brand} ${model} full view ${lightboxIndex + 1}`}
+                  className="max-h-[72vh] max-w-full object-contain rounded-xl select-none"
+                />
+
+                {gallery.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxIndex((prev) => (prev + 1) % gallery.length)}
+                    className="absolute right-2 sm:right-4 z-20 w-10 h-10 rounded-full bg-white/15 hover:bg-white/30 text-white flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label="Next photo"
+                  >
+                    <ChevronRight className="w-6 h-6" />
+                  </button>
+                )}
+              </div>
+
+              {/* Thumbnail strip */}
+              {gallery.length > 1 && (
+                <div
+                  className="flex items-center justify-center gap-2.5 max-w-6xl w-full mx-auto overflow-x-auto py-2 z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {gallery.map((p, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setLightboxIndex(i)}
+                      className={`w-16 h-12 rounded-lg overflow-hidden border-2 transition-all cursor-pointer shrink-0 ${
+                        i === lightboxIndex ? "border-blue-500 scale-105" : "border-transparent opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <img src={p} alt={`Thumbnail ${i + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Main Grid */}
